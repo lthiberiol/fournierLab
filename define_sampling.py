@@ -27,8 +27,9 @@ target_taxonomies = 'alphaproteobacteria cyanobacteria'.split()
 #
 # parse information from xml to DataFrame, if it wasn't before
 if not os.path.isfile( '../silva/silva.tab' ):
+    print "\t*Loading Silva's full XML... (it might take a while, go grab something to eat)"
     data = {}
-#    root = et.parse('../silva/silva.xml').getroot()
+    root = et.parse('../silva/silva.xml').getroot()
     xml_size = len(root)
 
     count      = 0
@@ -74,23 +75,40 @@ if not os.path.isfile( '../silva/silva.tab' ):
     leaf_info.to_csv( '../silva/silva.tab', sep='\t' )
     print '\t**Finished parsing XML...'
 else:
-    leaf_info = pd.read_table( '../silva/silva.tab', index_col=1 )
+    print "\t*Loading Silva's pre-parsed XML"
+    leaf_info = pd.read_table( '../silva/silva.tab', index_col=0 )
     print '\t**Finished loading XML...'
 
 #
 # edit and load Silva's phylogeny
+print "\n\t**Loading Silva's tree..."
 branch_labels      = {}
 branch_label_count = 1
 raw_tree           = ''
 for line in open('../silva/SSURefNR99_1200_slv_128.tree').xreadlines():
     tmp_branch_name = re.search( "\)('.+?'):", line )
     if tmp_branch_name:
-        branch_labels[ "'branchLabel%i'" %count ] = tmp_branch_name.group(1)
-        line = line.replace( tmp_branch_name.group(1), "'branchLabel%i'" %count )
-        count += 1
+        branch_labels[ "'branchLabel%i'" %branch_label_count ] = tmp_branch_name.group(1)
+        line = line.replace( tmp_branch_name.group(1), "'branchLabel%i'" %branch_label_count )
+        branch_label_count += 1
     raw_tree += line
 
 silva_tree = ete3.Tree( raw_tree, format=1 )
 #silva_tree.prune( leaf_info.index, preserve_branch_length=True )
 silva_tree.prune( leaf_info.index )
 print '\t**Finished loading tree...'
+
+#
+# traverse tree and select representatives
+representatives = {}
+for family in leaf_info.tax_family.unique():
+    taxa = leaf_info.index[ leaf_info.tax_family == family ]
+    isMonophyletic, cladeType, fuckingThingsUp = silva_tree.check_monophyly( taxa, target_attr='name' )
+    if not isMonophyletic:
+        continue
+    
+    representatives[family] = []
+    for child in silva_tree.get_common_ancestor( taxa ):
+        representatives[family].append( child.get_topology_only() )
+
+
