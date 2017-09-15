@@ -110,5 +110,3 @@ for family in leaf_info.tax_family.unique():
     representatives[family] = []
     for child in silva_tree.get_common_ancestor( taxa ):
         representatives[family].append( child.get_topology_only() )
-
-
