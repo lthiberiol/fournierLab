@@ -145,6 +145,40 @@ for node in silva_tree.traverse( is_leaf_fn=lambda node: True if target_leaves.i
 print "**Pruning is done!!"
 print '\t**Iterations required: %i' %loop_count
 
+genus = {}
+for window in range(0, samples.species_taxid.unique().shape[0], 200):
+    query = Entrez.efetch( id=samples.species_taxid.unique()[window:window+200].astype(str).tolist(), db='taxonomy')
+    result = et.parse(query).getroot()
+    for entry in result:
+        lineage = entry.find('LineageEx')
+        for rank in lineage.getchildren():
+            if rank.find( 'Rank' ).text == 'genus':
+                genus[entry.find( 'TaxId' ).text] = rank.find( 'ScientificName' ).text
+#                entry_genus = rank.find( 'ScientificName' ).text
+                break
+    time.sleep(3)
+print '** Done retrieving genus lineage data!'
+
+for leaf in silva_tree.get_leaves():
+    if not samples.loc[leaf.name, 'species_taxid'] or pd.isnull( samples.loc[leaf.name, 'species_taxid'] ):
+        print leaf.name
+        break
+    else:
+        try:
+            leaf.add_feature( 'genus', genus[samples.loc[leaf.name, 'species_taxid'].astype(str)] )
+        except KeyError:
+            leaf.add_feature( 'genus', 'NA' )
+
+monophyletic_genera = []
+paraphyletic_genera = []
+for genus in set( genus.values() ):
+    isMonophyletic, clade_type, fucking_up = silva_tree.check_monophyly( values=[genus], target_attr='genus' )
+    if isMonophyletic:
+        monophyletic_genera.append( genus )
+    else:
+        paraphyletic_genera.append( genus )
+            
+
 #
 # traverse tree and select representatives
 representatives = {}
