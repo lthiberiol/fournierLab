@@ -63,32 +63,6 @@ def select_representative( tmp_df ):
     else:
         return pd.DataFrame(df.iloc[0]).T
 
-###    if df['refseq_category'].unique().shape[0] > 1:
-###        for refseq_category in ['reference genome', 'representative genome', 'na']:
-###            if refseq_category in df['refseq_category'].unique():
-###                best_category = refseq_category
-###                break
-###        df.drop( df[df['refseq_category'] != best_category].index, axis='index', inplace=True )
-###
-###    if df['assembly_level'].unique().shape[0] > 1:
-###        for assembly_level in ['complete genome', 'chromosome', 'scaffold', 'contig']:
-###            if assembly_level in df['assembly_level'].unique():
-###                best_assembly = assembly_level
-###                break
-###        df.drop( df[df['assembly_level'] != best_assembly].index, axis='index', inplace=True )
-###
-###    if df['genome_rep'].unique().shape[0] > 1:
-###        for genome_rep in ['full', 'partial']:
-###            if genome_rep in df['genome_rep'].unique():
-###                best_representation = genome_rep
-###                break
-###        df.drop( df[df['genome_rep'] != best_representation].index, axis='index', inplace=True )
-###
-###    if df.shape[0] == 1:
-###        return df
-###    else:
-###        return pd.DataFrame(df.iloc[0]).T
-
 print "\t**Loadind main raw DataFrames ..."
 genome_lineages = pd.read_table( 'lineages_from_genbank_summary2.tab', sep='\t', index_col=0, dtype=str )
 genbank_summary = pd.read_table( '/mnt/work2/hgt/greg/assembly_summary_genbank.txt', dtype={'taxid':str, 'infraspecific_name':str} )
