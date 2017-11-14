@@ -11,10 +11,10 @@
 #                                                          #
 ############################################################
 
-from sys import exit
+import sys
 
 if __name__ != '__main__':
-    exit()
+    sys.exit()
 
 import ete3
 import re
@@ -31,7 +31,36 @@ import itertools
 import ftplib as ftp
 from Bio import SeqIO
 
-genomes = pd.read_table( 'selected_genomes.tab', index_col=0 )
+with open(sys.argv[1]) as configuration_file:
+
+    #
+    # try to find the block containing script's parameters
+    parameter_block   = re.search( '^generate_reference_tree.py\s?\{([\s\S]*)\}', configuration_file.read(), re.M ) 
+    if not parameter_block:
+        sys.exit('Could not find parameters respective to "generate_reference_tree.py", sorry...')
+
+    #
+    # go through the block lines and atribute parameters to their respective variables
+    for line in parameter_block.group(1).strip().split('\n'):
+        if line.startswith('#') or not line.strip():
+            continue
+
+        key, value = line.split('=')
+        key        = key.strip()
+        value      = value.split('#')[0].strip() # ignore everything after a "#"
+
+        if key == 'genomes_dataframe':
+            genomes_dataframe = value
+        elif key == 'folder_to_download_genomes':
+            folder_to_download_genomes = value
+        elif key == 'folder_to_save_formatted_faas':
+            folder_to_download_genomes = value
+
+    # check if all required variables were defined
+    if not set( 'genomes_dataframe folder_to_download_genomes folder_to_save_formatted_faas'.split() ).issubset( locals() ):
+        sys.exit( "Could not define values for the current parameters: %s" ', '.join( set( 'folder_to_save_formatted_faas'.split() ).difference( locals() ) ) )
+
+genomes = pd.read_table( genomes_dataframe, index_col=0 )
 
 def download_genomes( ftp_path, target_sufix='protein.faa.gz' ):
     try: 
@@ -41,7 +70,7 @@ def download_genomes( ftp_path, target_sufix='protein.faa.gz' ):
         ncbi.cwd( ftp_path.replace('ftp.ncbi.nlm.nih.gov/', '') )
         for assembly_file in ncbi.nlst():
             if assembly_file.endswith( target_sufix ):
-                with open( 'selected_genomes/'+assembly_file, 'wb') as file_handle:
+                with open( folder_to_download_genomes+'/'+assembly_file, 'wb') as file_handle:
                     ncbi.retrbinary( "RETR %s" %assembly_file, file_handle.write )
                     ncbi.quit()
                     return 0
@@ -54,29 +83,24 @@ retrieved_genomes = pool.map(download_genomes, genomes.ftp_path.values )
 pool.close()
 pool.join()
 
-os.system( 'gunzip -d selected_genomes/*' )
+os.system( 'gunzip -d %s/*' %folder_to_download_genomes )
 print 'Genomes downloaded!'
 
-os.mkdir( 'formated_faas' )
-for faa_file_name in os.listdir( 'selected_genomes/' ):
+os.mkdir( folder_to_download_genomes )
+for faa_file_name in os.listdir( folder_to_download_genomes+'/' ):
     assembly_acc = re.match( '^GCA_\d+\.\d+', faa_file_name ).group()
 
-    faa                = SeqIO.parse( 'selected_genomes/%s' % faa_file_name, 'fasta' )
+    faa                = SeqIO.parse( '%s/%s' %(folder_to_download_genomes, faa_file_name), 'fasta' )
     sequences_to_write = []
     for protein in faa:
         protein.id = '%s|%s' %(assembly_acc, protein.id)
         sequences_to_write.append( protein )
 
-    SeqIO.write( sequences_to_write, 'formated_faas/%s.faa' %assembly_acc, 'fasta' )
+    SeqIO.write( sequences_to_write, '%s/%s.faa' %(folder_to_download_genomes, assembly_acc), 'fasta' )
 print 'FAAs edited!'
 
-
-
-def hmmsearch( (hmm, faa), output_folder='/mnt/work2/hgt/greg/fournierLab/ribo_searches', threads=2 ):
-   subprocess.call( ['hmmsearch',
-                     '-o', '%s/%s-search_for-%s' %(output_folder, faa.replace('.faa', ''), hmm.replace('.hmm', '')),
-                     '--acc',
-                     '--noali',
-                     '--cpu', '%i' %threads,
-                     '/mnt/work2/hgt/greg/ribo_db/%s' %hmm,
-                     '/mnt/work2/hgt/greg/fournierLab/formated_faas/%s' %faa] )
+##tree = ete3.Tree('RAxML_bestTree.ribosomal_concat')
+##name_dict = { i:'%s %s' %(j, str(k)) for i,j,k in genomes['assembly_accession organism_name infraspecific_name'.split()].values}
+##for leaf in tree.get_leaves():
+##    leaf.name = name_dict[ leaf.name ]
+##tree.write( outfile='RAxML_bestTree.ribosomal_concat-organism_names' )

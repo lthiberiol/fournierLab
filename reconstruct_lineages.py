@@ -27,6 +27,41 @@ from copy import deepcopy
 import numpy as np
 import multiprocessing
 
+#
+# parse configuration file parameters
+#
+with open(sys.argv[1]) as configuration_file:
+
+    #
+    # try to find the block containing script's parameters
+    parameter_block   = re.search( '^generate_reference_tree.py\s?\{([\s\S]*)\}', configuration_file.read(), re.M ) 
+    if not parameter_block:
+        sys.exit('Could not find parameters respective to "generate_reference_tree.py", sorry...')
+
+    #
+    # go through the block lines and atribute parameters to their respective variables
+    for line in parameter_block.group(1).strip().split('\n'):
+        if line.startswith('#') or not line.strip():
+            continue
+
+        key, value = line.split('=')
+        key        = key.strip()
+        value      = value.split('#')[0].strip() # ignore everything after a "#"
+
+        if key == 'taxonomy':
+            taxonomy = value
+        elif key == 'genbank_summary':
+            genbank_summary = value
+        elif key == 'num_threads':
+            num_threads = int(value)
+        elif key == 'output_lineages':
+            output_lineages = value
+
+    # check if all required variables were defined
+    if not set( 'taxonomy genbank_summary num_threads output_lineages'.split() ).issubset( locals() ):
+        sys.exit( "Could not define values for the current parameters: %s" ', '.join( set( 'taxonomy genbank_summary num_threads output_lineages'.split() ).difference( locals() ) ) )
+############################################################
+
 def follow_lineage( genome_series ):
     lineage = []
     parent_id = genome_series['parent tax_id']
@@ -41,12 +76,12 @@ def follow_lineage( genome_series ):
 
 print "\t**Loadind main raw DataFrames ..."
 header_names=['tax_id', 'parent tax_id', 'rank', 'embl code', 'division id', 'inherited div flag', 'genetic code id', 'inherited GC', 'mitochondrial genetic', 'inherited MGC flag', 'GenBank hidden flag', 'hidden subtree root', 'comments']
-taxonomy                  = pd.read_table( '../ncbi_taxonomy/nodes.dmp', sep='\t\|\t', header=None, names=header_names, index_col=False, engine='python' )
+taxonomy                  = pd.read_table( taxonomy, sep='\t\|\t', header=None, names=header_names, index_col=False, engine='python' )
 taxonomy.tax_id           = taxonomy.tax_id.astype(str)
 taxonomy['parent tax_id'] = taxonomy['parent tax_id'].astype(str)
 taxonomy                  = taxonomy.set_index( 'tax_id' )
 
-genbank_summary = pd.read_table( '/mnt/work2/hgt/greg/assembly_summary_genbank.txt', dtype={'taxid':str, 'infraspecific_name':str} )
+genbank_summary = pd.read_table( genbank_summary, dtype={'taxid':str, 'infraspecific_name':str} )
 print "\t**Main raw DataFrames loaded!!"
 
 print '\t**Assembling lineages'
@@ -54,7 +89,7 @@ genomes_to_reconstruct = taxonomy[ taxonomy.index.isin( genbank_summary.taxid) ]
 multithread_input = [ genome_series for index, genome_series in genomes_to_reconstruct.iterrows() ]
 
 print '\t\t**starting threads!\n'
-pool = multiprocessing.Pool( processes=30 )
+pool = multiprocessing.Pool( processes=num_threads )
 lineages = pool.map(follow_lineage, multithread_input )
 pool.close()
 pool.join()
@@ -86,9 +121,9 @@ for taxid, lineage in zip(genomes_to_reconstruct.index, lineages):
     genome_lineages = genome_lineages.append( tmp_lineage )
 
 print '\t**Saving lineages'
-genome_lineages.to_csv( 'lineages_from_genbank_summary2.tab', sep='\t' )
+genome_lineages.to_csv( output_lineages, sep='\t' )
 
-print '\t**Parsing humand readable names...'
+print '\t**Parsing human readable names...'
 header_names      = ['tax_id', 'name_txt', 'unique name', 'name class']
 taxa_names        = pd.read_table( '../ncbi_taxonomy/names.dmp', sep='\t\|\t', header=None, names=header_names, index_col=False, engine='python' )
 taxa_names.tax_id = taxa_names.tax_id.astype(str)
@@ -100,4 +135,4 @@ for column in genome_lineages.columns:
     genome_lineages.loc[genome_lineages[column].notnull(), column] = taxa_names.loc[ genome_lineages.loc[genome_lineages[column].notnull(), column].astype(int).astype(str), 'name_txt' ].values
 
 print '\t**Saving lineages, again!'
-genome_lineages.to_csv( 'lineages_from_genbank_summary2-txt_names.tab', sep='\t' )
+genome_lineages.to_csv( '%s-txt_names.tab' %output_lineages, sep='\t' )

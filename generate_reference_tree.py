@@ -3,8 +3,8 @@
 
 ############################################################
 #                                                          #
-# Script to assess taxonomy available in Silva and define  #
-#     genomes to sampled...                                #
+# Script to generate phylogenetic tree based in ribosomal  #
+#     genes hmm database                                   #
 #                                                          #
 #                                       L. Thibério Rangel #
 #                                     lthiberiol@gmail.com #
@@ -38,7 +38,6 @@ from commands import getoutput
 #
 with open(sys.argv[1]) as configuration_file:
 
-    configuration_file = open('generate_phylogeny.conf')
     #
     # try to find the block containing script's parameters
     parameter_block   = re.search( '^generate_reference_tree.py\s?\{([\s\S]*)\}', configuration_file.read(), re.M ) 
