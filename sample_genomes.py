@@ -3,8 +3,9 @@
 
 ############################################################
 #                                                          #
-# Script to assess taxonomy available in Silva and define  #
-#     genomes to sampled...                                #
+# Script to check the availability of genomic data from    #
+#     genomes present in NCBI, and selecte from chosen     #
+#     taxonomic groups                                     #
 #                                                          #
 #                                       L. Thibério Rangel #
 #                                     lthiberiol@gmail.com #

@@ -3,8 +3,8 @@
 
 ############################################################
 #                                                          #
-# Script to assess taxonomy available in Silva and define  #
-#     genomes to sampled...                                #
+# Script to save phylogenetic lineages of genomes in a     #
+#     "pandas happy" format                                #
 #                                                          #
 #                                       L. Thibério Rangel #
 #                                     lthiberiol@gmail.com #
