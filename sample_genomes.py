@@ -30,6 +30,42 @@ import random
 import itertools
 import ftplib as ftp
 
+#
+# parse configuration file parameters
+#
+with open(sys.argv[1]) as configuration_file:
+
+    #
+    # try to find the block containing script's parameters
+    parameter_block   = re.search( '^generate_reference_tree.py\s?\{([\s\S]*)\}', configuration_file.read(), re.M ) 
+    if not parameter_block:
+        sys.exit('Could not find parameters respective to "generate_reference_tree.py", sorry...')
+
+    #
+    # go through the block lines and atribute parameters to their respective variables
+    for line in parameter_block.group(1).strip().split('\n'):
+        if line.startswith('#') or not line.strip():
+            continue
+
+        key, value = line.split('=')
+        key        = key.strip()
+        value      = value.split('#')[0].strip() # ignore everything after a "#"
+
+        if key == 'taxonomy':
+            taxonomy = value
+        elif key == 'genbank_summary':
+            genbank_summary = value
+        elif key == 'num_threads':
+            num_threads = int(value)
+        elif key == 'output_table':
+            output_table = value
+        elif key == 'tax_ids':
+            tax_ids = value.split()
+
+    # check if all required variables were defined
+    if not set( 'taxonomy genbank_summary num_threads output_lineages'.split() ).issubset( locals() ):
+        sys.exit( "Could not define values for the current parameters: %s" ', '.join( set( 'taxonomy genbank_summary num_threads output_lineages'.split() ).difference( locals() ) ) )
+############################################################
 
 def test_ftp_path( path ):
     path = path.replace('ftp://', '')
@@ -81,8 +117,8 @@ def select_representative( tmp_df ):
         return pd.DataFrame(df.iloc[0]).T
 
 print "\t**Loadind main raw DataFrames ..."
-genome_lineages = pd.read_table( 'lineages_from_genbank_summary2.tab', sep='\t', index_col=0, dtype=str )
-genbank_summary = pd.read_table( '/mnt/work2/hgt/greg/assembly_summary_genbank.txt', dtype={'taxid':str, 'infraspecific_name':str} )
+genome_lineages = pd.read_table( taxonomy, sep='\t', index_col=0, dtype=str )
+genbank_summary = pd.read_table( genbank_summary, dtype={'taxid':str, 'infraspecific_name':str} )
 
 genome_lineages.index = genome_lineages.index.astype( str )
 genome_lineages['taxid'] = genome_lineages.index
@@ -94,7 +130,7 @@ print "\t**Main raw DataFrames loaded!!"
 print "**\tFiltering down to genomes from target taxonomies.."
 # Alphaproteobacteria = 28211
 # Cyanobacteria       = 1117
-target_taxonomies = ['28211', '1117']
+target_taxonomies = tax_ids
 
 genome_lineages  = genome_lineages[ (genome_lineages.phylum.isin( target_taxonomies )) | 
                                    (genome_lineages['class'].isin( target_taxonomies )) ]
@@ -103,11 +139,10 @@ merged           = genome_lineages.merge( genbank_summary, how='inner', on='taxi
 
 merged.drop( merged.genus[merged.genus.isnull()].index, axis='index', inplace=True )
 
-pool         = multiprocessing.Pool( processes=20 )
+pool         = multiprocessing.Pool( processes=num_threads )
 correct_data = pool.map(test_ftp_path, merged.ftp_path.tolist() )
 pool.close()
 pool.join()
-print 'yeah'
 
 merged = merged[ correct_data ]
 
@@ -131,4 +166,4 @@ for genus, df in grouped_by_genus:
             multiple_strains.append( genus )
 print "**\tFiltering done!!!"
 
-selected_genomes.to_csv(   'selected_genomes.tab', sep='\t' )
+selected_genomes.to_csv( output_table, sep='\t' )
