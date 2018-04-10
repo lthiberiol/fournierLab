@@ -33,16 +33,19 @@ def name_matching_branches( named, unamed ):
                 node1.name = node2.name
                 name_matching_branches( node2, node1 )
 
-reference_tree       = ete3.Tree( '/mnt/work2/hgt/greg/fournierLab/rooted_partitions-with_BB_support.treefile' )
-named_reference_tree = ete3.Tree( '/mnt/work2/hgt/greg/fournierLab/rooted_partitions-with_named_branches.treefile', format=1 )
+os.chdir('/work/Alphas_and_Cyanos')
+
+reference_tree       = ete3.Tree( 'rooted_partitions-with_BB_support.treefile' )
+named_reference_tree = ete3.Tree( 'rooted_partitions-with_named_branches.treefile', format=1 )
 counter              = 0
 supported_transfers  = {}
-rf_values = []
-for folder in os.listdir( 'mcl/ranger_results/ranger_inputs/' ):
-    if not os.path.isdir( 'mcl/ranger_results/ranger_inputs/%s' %folder ):
+rf_values            = []
+rf_max_values        = []
+for folder in os.listdir( 'reconciliations/' ):
+    if not os.path.isdir( 'reconciliations/%s' %folder ):
         continue
 
-    with cd( 'mcl/ranger_results/ranger_inputs/%s' %folder ):
+    with cd( 'reconciliations/%s' %folder ):
         reconciliation_files = os.listdir('.')
 
         if 'aggregate.reconciliation' not in reconciliation_files:
@@ -103,6 +106,7 @@ for folder in os.listdir( 'mcl/ranger_results/ranger_inputs/' ):
                     rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reference_tree.robinson_foulds(child, attr_t2='genome_name')
                     if rf:
                         rf_values.append( rf )
+                        rf_max_values.append( rf_max )
 #                        rf_flag = True
 #                        break
 
@@ -117,7 +121,7 @@ print 'yeah'
 
 final_transfers = {}
 for gene_family, transfers in supported_transfers.items():
-    with cd( 'mcl/ranger_results/ranger_inputs/%s' %gene_family ):
+    with cd( 'reconciliations/%s' %gene_family ):
         for transfer in transfers:
             grep_query  = re.match( '^(m\d+ = LCA\[\S+, \S+\]:)', transfer, re.M ).group(1)
             grep_result = getoutput( 'grep "%s" %s.reconciliation*' %(re.escape(grep_query), gene_family ) )
