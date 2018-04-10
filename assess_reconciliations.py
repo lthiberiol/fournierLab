@@ -46,12 +46,12 @@ os.chdir('/work/Alphas_and_Cyanos')
 def assess_reconciliation(folder):
     reconciliation_data = {'transfer_supports':[], 'mapping_consistencies':[], 'homologue_group':folder}
 
-    if not os.path.isdir('reconciliations/%s' %folder):
+    if not os.path.isdir('reconciliations/%s' %folder) or not os.path.isfile('reconciliations/%s/aggregate.reconciliation' %folder):
         return
 
+    named_reference_tree = ete3.Tree('rooted_partitions-with_named_branches.treefile', format=1)
+
     with cd('reconciliations/%s' %folder):
-        if not os.path.isfile('aggregate.reconciliation'):
-            return reconciliation_data
 
         #
         # load trees with named branches
