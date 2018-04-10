@@ -1,7 +1,14 @@
+#!/usr/bin/env python2.7
+#coding: utf-8
+
 import ete3
 import os
 import re
 from commands import getoutput
+import seaborn as sns
+from matplotlib import pyplot as plt
+from scipy.stats import pearsonr
+import pandas as pd
 
 class cd:  
     """  
@@ -39,8 +46,6 @@ reference_tree       = ete3.Tree( 'rooted_partitions-with_BB_support.treefile' )
 named_reference_tree = ete3.Tree( 'rooted_partitions-with_named_branches.treefile', format=1 )
 counter              = 0
 supported_transfers  = {}
-rf_values            = []
-rf_max_values        = []
 for folder in os.listdir( 'reconciliations/' ):
     if not os.path.isdir( 'reconciliations/%s' %folder ):
         continue
@@ -57,10 +62,11 @@ for folder in os.listdir( 'reconciliations/' ):
         # load trees with named branches
         gene_tree = ete3.Tree( open('%s.reconciliation1' %folder).readlines()[7], format=1 )
         for node in gene_tree.traverse():
-            if node.is_leaf():
+            if node.name == 'm1':
                 continue
 
-            if node.name == 'm1':
+            if node.is_leaf():
+                node.add_feature('genome_name', node.name.split('_')[0])
                 continue
 
             node_name, node_support = re.search('^(m\d+?)(100|\d{2})?$', node.name).groups()
@@ -89,40 +95,33 @@ for folder in os.listdir( 'reconciliations/' ):
             if transfer_support/number_of_replications >= 1 and transfer_support == mapping_consistency:
                 node_name    = event.split()[0]
                 try:
-                    reticulation = gene_tree.search_nodes( name=node_name )[0]
+                    reticulation = gene_tree.search_nodes(name=node_name)[0]
                 except:
                     continue
                 if reticulation.support < 95:
                     continue
 
-                for leaf in reticulation.get_leaves():
-                    leaf.add_feature( 'genome_name', leaf.name.split('_')[0] )
-
                 if len(set([leaf.genome_name for leaf in reticulation.get_leaves()])) < len(reticulation):
-                    continue
-
-                rf_flag = False
-                for child in reticulation.children:
-                    rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reference_tree.robinson_foulds(child, attr_t2='genome_name')
-                    if rf:
-                        rf_values.append( rf )
-                        rf_max_values.append( rf_max )
-#                        rf_flag = True
-#                        break
-
-                if rf_flag:
                     continue
 
                 if not flag:
                     flag = True
-                    supported_transfers[folder] = []
-                supported_transfers[folder].append( event )
+                    supported_transfers[folder]              = {}
+                    supported_transfers[folder]['tree']      = gene_tree.copy(method='deepcopy')
+                    supported_transfers[folder]['transfers'] = []
+                supported_transfers[folder]['transfers'].append( event )
 print 'yeah'
 
-final_transfers = {}
-for gene_family, transfers in supported_transfers.items():
+rf_values_donor       = []
+rf_values_norm_donor     = []
+rf_values_recipient   = []
+rf_values_norm_recipient = []
+final_transfers       = {}
+flag = False
+for gene_family, data in supported_transfers.items():
     with cd( 'reconciliations/%s' %gene_family ):
-        for transfer in transfers:
+        gene_tree = data['tree']
+        for transfer in data['transfers']:
             grep_query  = re.match( '^(m\d+ = LCA\[\S+, \S+\]:)', transfer, re.M ).group(1)
             grep_result = getoutput( 'grep "%s" %s.reconciliation*' %(re.escape(grep_query), gene_family ) )
             grep_result = set(re.sub( '^%s.reconciliation\d+:' %gene_family, '', grep_result, flags=re.M ).split('\n'))
@@ -136,36 +135,54 @@ for gene_family, transfers in supported_transfers.items():
             if recipient_branch.is_leaf() or donor_branch.is_leaf():
                 continue
 
+            reticulation = gene_tree.search_nodes(name=transfer.split()[0])[0]
+
+            rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reticulation.robinson_foulds(donor_branch, attr_t1='genome_name')
+            if rf:
+                rf_values_donor.append( rf )
+                rf_values_norm_donor.append(rf/float(rf_max))
+
+            rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reticulation.robinson_foulds(recipient_branch, attr_t1='genome_name')
+            if rf:
+                rf_values_recipient.append( rf )
+                rf_values_norm_recipient.append(rf/float(rf_max))
+
             if gene_family not in final_transfers:
                 final_transfers[gene_family] = []
-            final_transfers[gene_family].append( transfer )
+            final_transfers[gene_family].append(transfer)
 print 'yeah'
 
-distances_from_root2 = []
-transfer_distance2   = []
-for gene_family, transfers in final_transfers.items():
-    for transfer in transfers:
-        donor, recipient = re.search( 'Mapping --> (\S+), Recipient --> (\S+)$', transfer, re.M ).groups()
-        recipient_branch = named_reference_tree.search_nodes( name=recipient )[0]
-        donor_branch     = named_reference_tree.search_nodes( name=donor )[0]
-        if recipient_branch.is_leaf():
-            continue
+fig, axs = plt.subplots(nrows=2)
+axs[0].set_title('Donor branch Robinson-Foulds distances')
+sns.distplot(rf_values_donor,     ax=axs[0])
+axs[1].set_title('Recipient branch Robinson-Foulds distances')
+sns.distplot(rf_values_recipient, ax=axs[1])
+fig.tight_layout()
+fig.savefig('rf_distances.pdf', dpi=300)
 
-        distances_from_root2.append( named_reference_tree.get_distance( donor_branch,     topology_only=True ) )
-        distances_from_root2.append( named_reference_tree.get_distance( recipient_branch, topology_only=True ) )
-        transfer_distance2.append( donor_branch.get_distance( recipient_branch, topology_only=True ) )
-print 'yeah'
+fig, axs = plt.subplots(nrows=2)
+axs[0].set_title('Donor branch normalized Robinson-Foulds distances')
+sns.distplot(rf_values_norm_donor,     ax=axs[0])
+axs[1].set_title('Recipient branch normalized Robinson-Foulds distances')
+sns.distplot(rf_values_norm_recipient, ax=axs[1])
+fig.tight_layout()
+fig.savefig('rf_distances_norm.pdf', dpi=300)
 
-from scipy.stats import pearsonr
-from scipy.stats import spearmanr
-supports = []
-distances_from_root3 = []
+
+# test distance to root and branch support correlation #####
+distances_from_root = []
+supports            = []
 for node in reference_tree.traverse():
-	if not node.is_leaf() and not node.is_root():
-		supports.append( node.support )
-		distances_from_root3.append( reference_tree.get_distance( node, topology_only=True) )
-spearmanr( supports, distances_from_root3)
-            
-for gene_family, transfers in final_transfers.items():
-    print gene_family
-    print '\t%s' %'\n\t'.join(transfers)
+    if node.is_leaf() or node.is_root():
+        continue
+    distances_from_root.append(reference_tree.get_distance(node, topology_only=True))
+    supports.append(node.support)
+
+supports            = pd.Series(supports, name='Branch support')
+distances_from_root = pd.Series(distances_from_root, name='# of bipartitions from root')
+pearson_value = pearsonr(distances_from_root, supports)[0]
+fig, ax = plt.subplots()
+ax.set_title('Pearson correlation: %f' % round(pearson_value, 4))
+sns.regplot(distances_from_root, supports, ax=ax)
+fig.tight_layout()
+fig.savefig('root_distanceVSsupport-correlation.pdf', dpi=300)
