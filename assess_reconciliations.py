@@ -42,16 +42,55 @@ def name_matching_branches( named, unamed ):
                 name_matching_branches( node2, node1 )
 
 os.chdir('/work/Alphas_and_Cyanos')
+named_reference_tree = ete3.Tree('rooted_partitions-with_named_branches.treefile', format=1)
 
-def assess_reconciliation(folder):
+def assess_branch_compatibility(folder, transfers, gene_tree, named_reference_tree, rf_values=rf_values):
+    final_transfers = []
+    for transfer in transfers:
+        print transfer
+        grep_query  = re.match('^(m\d+ = LCA\[\S+, \S+\]:)', transfer, re.M).group(1)
+        grep_result = getoutput( 'grep "%s" %s.reconciliation*' %(re.escape(grep_query), folder))
+        grep_result = set(re.sub('^%s.reconciliation\d+:' %folder, '', grep_result, flags=re.M).split('\n'))
+        #
+        # assess consistency of donor/recipient pair
+        if len(grep_result) > 1:
+            #
+            # inconsistent... sorry
+            continue
+
+        transfer         = grep_result.pop()
+        donor, recipient = re.search('Mapping --> (\S+), Recipient --> (\S+)$', transfer, re.M).groups()
+        recipient_branch = named_reference_tree.search_nodes(name=recipient)[0].copy(method='deepcopy')
+        donor_branch     = named_reference_tree.search_nodes(name=donor    )[0].copy(method='deepcopy')
+        if recipient_branch.is_leaf() or donor_branch.is_leaf():
+            continue
+
+        reticulation = gene_tree.search_nodes(name=transfer.split()[0])[0]
+
+        #
+        # assess donor branch compatibility
+        rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reticulation.robinson_foulds(donor_branch, attr_t1='genome_name')
+        rf_values['donor'].append(rf)
+        rf_values['donor_normed'].append(rf/float(rf_max))
+
+        #
+        # assess recipient branch compatibility
+        rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reticulation.robinson_foulds(recipient_branch, attr_t1='genome_name')
+        rf_values['recipient'].append(rf)
+        rf_values['recipient_normed'].append(rf/float(rf_max))
+
+        final_transfers.append(transfer)
+    print '%s: done' %folder
+    return final_transfers
+
+def assess_reconciliation(folder, rf_values=rf_values):
     reconciliation_data = {'transfer_supports':[], 'mapping_consistencies':[], 'homologue_group':folder}
 
     if not os.path.isdir('reconciliations/%s' %folder) or not os.path.isfile('reconciliations/%s/aggregate.reconciliation' %folder):
         return
 
-    named_reference_tree = ete3.Tree('rooted_partitions-with_named_branches.treefile', format=1)
-
     with cd('reconciliations/%s' %folder):
+        print folder
 
         #
         # load trees with named branches
@@ -101,10 +140,18 @@ def assess_reconciliation(folder):
                     reconciliation_data['tree']      = gene_tree.copy(method='deepcopy')
                     reconciliation_data['transfers'] = []
                 reconciliation_data['transfers'].append( event )
-    return reconciliation_data
 
+        if not 'tree' in reconciliation_data:
+            return None
+        return assess_branch_compatibility(folder, reconciliation_data['transfers'], gene_tree, named_reference_tree, rf_values=rf_values)
+
+manager = multiprocessing.Manager()
+rf_values = manager.dict({})
+rf_values = manager.dict({'donor':[], 'recipient':[], 'donor_normed':[], 'recipient_normed':[]})
+
+#with multiprocessing.Pool(processes=6) as pool:
 pool = multiprocessing.Pool(processes=6)
-results = pool.map(assess_reconciliation, os.listdir('reconciliations/'))
+results = pool.map(assess_reconciliation, os.listdir('reconciliations/')[:6])
 pool.close()
 pool.join()
 print 'yeah'
@@ -112,10 +159,6 @@ print 'yeah'
 reference_tree       = ete3.Tree('rooted_partitions-with_BB_support.treefile')
 named_reference_tree = ete3.Tree('rooted_partitions-with_named_branches.treefile', format=1)
 
-rf_values_donor          = []
-rf_values_norm_donor     = []
-rf_values_recipient      = []
-rf_values_norm_recipient = []
 final_transfers          = {}
 counter = 0
 for data in results:
