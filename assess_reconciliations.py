@@ -44,10 +44,10 @@ def name_matching_branches( named, unamed ):
 os.chdir('/work/Alphas_and_Cyanos')
 named_reference_tree = ete3.Tree('rooted_partitions-with_named_branches.treefile', format=1)
 
-def assess_branch_compatibility(folder, transfers, gene_tree, named_reference_tree, rf_values=rf_values):
+def assess_branch_compatibility(folder, transfers, gene_tree, named_reference_tree):
     final_transfers = []
+    rf_values = {'donor':[], 'recipient':[], 'donor_normed':[], 'recipient_normed':[]}
     for transfer in transfers:
-        print transfer
         grep_query  = re.match('^(m\d+ = LCA\[\S+, \S+\]:)', transfer, re.M).group(1)
         grep_result = getoutput( 'grep "%s" %s.reconciliation*' %(re.escape(grep_query), folder))
         grep_result = set(re.sub('^%s.reconciliation\d+:' %folder, '', grep_result, flags=re.M).split('\n'))
@@ -70,20 +70,19 @@ def assess_branch_compatibility(folder, transfers, gene_tree, named_reference_tr
         #
         # assess donor branch compatibility
         rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reticulation.robinson_foulds(donor_branch, attr_t1='genome_name')
-        rf_values['donor'].append(rf)
-        rf_values['donor_normed'].append(rf/float(rf_max))
+        if rf:
+            return None
 
         #
         # assess recipient branch compatibility
         rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reticulation.robinson_foulds(recipient_branch, attr_t1='genome_name')
-        rf_values['recipient'].append(rf)
-        rf_values['recipient_normed'].append(rf/float(rf_max))
+        if rf:
+            return None
 
         final_transfers.append(transfer)
-    print '%s: done' %folder
-    return final_transfers
+    return {folder:final_transfers}
 
-def assess_reconciliation(folder, rf_values=rf_values):
+def assess_reconciliation(folder):
     reconciliation_data = {'transfer_supports':[], 'mapping_consistencies':[], 'homologue_group':folder}
 
     if not os.path.isdir('reconciliations/%s' %folder) or not os.path.isfile('reconciliations/%s/aggregate.reconciliation' %folder):
@@ -143,81 +142,37 @@ def assess_reconciliation(folder, rf_values=rf_values):
 
         if not 'tree' in reconciliation_data:
             return None
-        return assess_branch_compatibility(folder, reconciliation_data['transfers'], gene_tree, named_reference_tree, rf_values=rf_values)
-
-manager = multiprocessing.Manager()
-rf_values = manager.dict({})
-rf_values = manager.dict({'donor':[], 'recipient':[], 'donor_normed':[], 'recipient_normed':[]})
+        return assess_branch_compatibility(folder, reconciliation_data['transfers'], gene_tree, named_reference_tree)
 
 #with multiprocessing.Pool(processes=6) as pool:
-pool = multiprocessing.Pool(processes=6)
-results = pool.map(assess_reconciliation, os.listdir('reconciliations/')[:6])
+pool = multiprocessing.Pool(processes=10)
+results = pool.map(assess_reconciliation, os.listdir('reconciliations/'))
 pool.close()
 pool.join()
 print 'yeah'
 
-reference_tree       = ete3.Tree('rooted_partitions-with_BB_support.treefile')
-named_reference_tree = ete3.Tree('rooted_partitions-with_named_branches.treefile', format=1)
-
-final_transfers          = {}
-counter = 0
-for data in results:
-    counter += 1
-    if counter % 100 == 0:
-        print counter
-
-    if data == None or 'tree' not in data:
+final_transfers = {}
+for element in results:
+    if element == None:
         continue
 
-    flag = False
-    with cd('reconciliations/%s' %data['homologue_group']):
-        gene_tree = data['tree']
-        for transfer in data['transfers']:
-            grep_query  = re.match('^(m\d+ = LCA\[\S+, \S+\]:)', transfer, re.M).group(1)
-            grep_result = getoutput( 'grep "%s" %s.reconciliation*' %(re.escape(grep_query), data['homologue_group']))
-            grep_result = set(re.sub('^%s.reconciliation\d+:' %data['homologue_group'], '', grep_result, flags=re.M).split('\n'))
-            if len(grep_result) > 1:
-                continue
+    final_transfers.update(element)
 
-            transfer         = grep_result.pop()
-            donor, recipient = re.search('Mapping --> (\S+), Recipient --> (\S+)$', transfer, re.M).groups()
-            recipient_branch = named_reference_tree.search_nodes(name=recipient)[0]
-            donor_branch     = named_reference_tree.search_nodes(name=donor)[0]
-            if recipient_branch.is_leaf() or donor_branch.is_leaf():
-                continue
-
-            reticulation = gene_tree.search_nodes(name=transfer.split()[0])[0]
-
-            rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reticulation.robinson_foulds(donor_branch, attr_t1='genome_name')
-            if rf:
-                rf_values_donor.append(rf)
-                rf_values_norm_donor.append(rf/float(rf_max))
-
-            rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reticulation.robinson_foulds(recipient_branch, attr_t1='genome_name')
-            if rf:
-                rf_values_recipient.append(rf)
-                rf_values_norm_recipient.append(rf/float(rf_max))
-
-            if not flag:
-                final_transfers[data['homologue_group']] = []
-            final_transfers[data['homologue_group']].append(transfer)
-print 'yeah'
-
-fig, axs = plt.subplots(nrows=2)
-axs[0].set_title('Donor branch Robinson-Foulds distances')
-sns.distplot(rf_values_donor,     ax=axs[0])
-axs[1].set_title('Recipient branch Robinson-Foulds distances')
-sns.distplot(rf_values_recipient, ax=axs[1])
-fig.tight_layout()
-fig.savefig('rf_distances.pdf', dpi=600)
-
-fig, axs = plt.subplots(nrows=2)
-axs[0].set_title('Donor branch normalized Robinson-Foulds distances')
-sns.distplot(rf_values_norm_donor,     ax=axs[0])
-axs[1].set_title('Recipient branch normalized Robinson-Foulds distances')
-sns.distplot(rf_values_norm_recipient, ax=axs[1])
-fig.tight_layout()
-fig.savefig('rf_distances_norm.pdf', dpi=600)
+### fig, axs = plt.subplots(nrows=2)
+### axs[0].set_title('Donor branch Robinson-Foulds distances')
+### sns.distplot(rf_values['donor'],     ax=axs[0])
+### axs[1].set_title('Recipient branch Robinson-Foulds distances')
+### sns.distplot(rf_values['recipient'], ax=axs[1])
+### fig.tight_layout()
+### fig.savefig('rf_distances.pdf', dpi=600)
+###
+### fig, axs = plt.subplots(nrows=2)
+### axs[0].set_title('Donor branch normalized Robinson-Foulds distances')
+### sns.distplot(rf_values['donor_normed'],     ax=axs[0])
+### axs[1].set_title('Recipient branch normalized Robinson-Foulds distances')
+### sns.distplot(rf_values['recipient_normed'], ax=axs[1])
+### fig.tight_layout()
+### fig.savefig('rf_distances_norm.pdf', dpi=600)
 
 fig, axs = plt.subplots(nrows=2)
 axs[0].set_title('Ranger HGT confidences')
