@@ -153,7 +153,7 @@ print 'yeah'
 
 final_transfers = {}
 for element in results:
-    if element == None:
+    if type(element) is not dict or element.values() == [[]]:
         continue
 
     final_transfers.update(element)
