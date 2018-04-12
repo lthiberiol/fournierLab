@@ -88,21 +88,28 @@ def assess_branch_compatibility(folder, transfers, gene_tree, named_reference_tr
         donor_branch_in_reticulation     = reticulation.get_common_ancestor(donor_intersection    )
         recipient_branch_in_reticulation = reticulation.get_common_ancestor(recipient_intersection)
 
-        if donor_branch_in_reticulation.name == 'm1' or recipient_branch_in_reticulation.name == 'm1':
+        useful_topology = False
+        if donor_branch_in_reticulation in recipient_branch_in_reticulation.get_ancestors():
+            print '%s: recipient nested into donor' %folder
+            useful_topology = True
+        elif recipient_branch_in_reticulation in donor_branch_in_reticulation.get_ancestors():
+            print '%s: donor nested into recipient' %folder
+        elif donor_branch_in_reticulation in recipient_branch_in_reticulation.get_sisters():
+            print '%s: donor and recipient are sisters' %folder
+            useful_topology = True
+
+        if not useful_topology:
             continue
 
-        if donor_branch_in_reticulation.name in [node.name for node in recipient_branch_in_reticulation.get_ancestors()]:
-            print 'yeah'
-        else:
-            continue
         print reticulation.name
         print reticulation
         print donor_branch_in_reticulation.name
         print donor_branch_in_reticulation
-        print recipient_branch_in_reticulation.get_ancestors()
+        print recipient_branch_in_reticulation.name
         print recipient_branch_in_reticulation
-        return
         final_transfers.append(transfer)
+    gene_tree.ladderize()
+    gene_tree.write(outfile='/work/Alphas_and_Cyanos/%s.tre' %folder, format=1)
     return {folder:final_transfers}
 
 def assess_reconciliation(folder):
@@ -112,8 +119,6 @@ def assess_reconciliation(folder):
         return
 
     with cd('reconciliations/%s' %folder):
-        print folder
-
         #
         # load trees with named branches
         gene_tree = ete3.Tree(open('%s.reconciliation1' %folder).readlines()[7], format=1 )
@@ -169,17 +174,16 @@ def assess_reconciliation(folder):
 
 #with multiprocessing.Pool(processes=6) as pool:
 pool = multiprocessing.Pool(processes=10)
-results = pool.map(assess_reconciliation, os.listdir('reconciliations/')[100:1000])
+results = pool.map(assess_reconciliation, os.listdir('reconciliations/'))
 pool.close()
 pool.join()
-print 'yeah'
 
 final_transfers = {}
 for element in results:
     if type(element) is not dict or element.values() == [[]]:
         continue
-
     final_transfers.update(element)
+print 'yeah'
 
 ### fig, axs = plt.subplots(nrows=2)
 ### axs[0].set_title('Donor branch Robinson-Foulds distances')
@@ -196,30 +200,33 @@ for element in results:
 ### sns.distplot(rf_values['recipient_normed'], ax=axs[1])
 ### fig.tight_layout()
 ### fig.savefig('rf_distances_norm.pdf', dpi=600)
+###
+### fig, axs = plt.subplots(nrows=2)
+### axs[0].set_title('Ranger HGT confidences')
+### sns.distplot(transfer_supports,     ax=axs[0])
+### axs[1].set_title('Ranger mapping consistencies')
+### sns.distplot(mapping_consistencies, ax=axs[1])
+### fig.tight_layout()
+### fig.savefig('ranger_support_metrics.pdf', dpi=600)
+
+farthest_leaf_from_root   = named_reference_tree.get_farthest_leaf(   topology_only=True)[0]
+longest_possible_distance = farthest_leaf_from_root.get_farthest_node(topology_only=True)[1]
+bipartition_distances        = []
+bipartition_distances_normed = []
+donor_distance_to_root       = []
+for transfers in final_transfers.values():
+    for transfer in transfers:
+        donor, recipient = re.search('Mapping --> (\S+), Recipient --> (\S+)$', transfer, re.M).groups()
+        recipient_branch = named_reference_tree.search_nodes(name=recipient)[0]
+        donor_branch     = named_reference_tree.search_nodes(name=donor    )[0]
+        bipartition_distances.append(donor_branch.get_distance(recipient_branch, topology_only=True))
+        bipartition_distances_normed.append(donor_branch.get_distance(recipient_branch, topology_only=True)/longest_possible_distance)
+        donor_distance_to_root.append(named_reference_tree.get_distance(donor_branch, topology_only=True))
 
 fig, axs = plt.subplots(nrows=2)
-axs[0].set_title('Ranger HGT confidences')
-sns.distplot(transfer_supports,     ax=axs[0])
-axs[1].set_title('Ranger mapping consistencies')
-sns.distplot(mapping_consistencies, ax=axs[1])
+axs[0].set_title('# of bipartitions from root to donor')
+sns.distplot(donor_distance_to_root, ax=axs[0])
+axs[1].set_title('# of bipartitions between donor/recipient (normalized)')
+sns.distplot(bipartition_distances_normed, ax=axs[1])
 fig.tight_layout()
-fig.savefig('ranger_support_metrics.pdf', dpi=600)
-
-
-# test distance to root and branch support correlation #####
-distances_from_root = []
-supports            = []
-for node in reference_tree.traverse():
-    if node.is_leaf() or node.is_root():
-        continue
-    distances_from_root.append(reference_tree.get_distance(node, topology_only=True))
-    supports.append(node.support)
-
-supports            = pd.Series(supports, name='Branch support')
-distances_from_root = pd.Series(distances_from_root, name='# of bipartitions from root')
-pearson_value = pearsonr(distances_from_root, supports)[0]
-fig, ax = plt.subplots()
-ax.set_title('Pearson correlation: %f' % round(pearson_value, 4))
-sns.regplot(distances_from_root, supports, ax=ax)
-fig.tight_layout()
-fig.savefig('root_distanceVSsupport-correlation.pdf', dpi=300)
+fig.savefig('hgt_distances.pdf', dpi=600)
