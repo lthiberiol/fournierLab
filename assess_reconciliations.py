@@ -101,12 +101,6 @@ def assess_branch_compatibility(folder, transfers, gene_tree, named_reference_tr
         if not useful_topology:
             continue
 
-        print reticulation.name
-        print reticulation
-        print donor_branch_in_reticulation.name
-        print donor_branch_in_reticulation
-        print recipient_branch_in_reticulation.name
-        print recipient_branch_in_reticulation
         final_transfers.append(transfer)
     gene_tree.ladderize()
     gene_tree.write(outfile='/work/Alphas_and_Cyanos/%s.tre' %folder, format=1)
