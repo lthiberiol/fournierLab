@@ -79,6 +79,29 @@ def assess_branch_compatibility(folder, transfers, gene_tree, named_reference_tr
         if rf:
             return None
 
+        donor_intersection     = [leaf.name for leaf in reticulation.get_leaves() if leaf.genome_name in donor_branch.get_leaf_names()    ]
+        recipient_intersection = [leaf.name for leaf in reticulation.get_leaves() if leaf.genome_name in recipient_branch.get_leaf_names()]
+
+        if not donor_intersection or not recipient_intersection:
+            continue
+
+        donor_branch_in_reticulation     = reticulation.get_common_ancestor(donor_intersection    )
+        recipient_branch_in_reticulation = reticulation.get_common_ancestor(recipient_intersection)
+
+        if donor_branch_in_reticulation.name == 'm1' or recipient_branch_in_reticulation.name == 'm1':
+            continue
+
+        if donor_branch_in_reticulation.name in [node.name for node in recipient_branch_in_reticulation.get_ancestors()]:
+            print 'yeah'
+        else:
+            continue
+        print reticulation.name
+        print reticulation
+        print donor_branch_in_reticulation.name
+        print donor_branch_in_reticulation
+        print recipient_branch_in_reticulation.get_ancestors()
+        print recipient_branch_in_reticulation
+        return
         final_transfers.append(transfer)
     return {folder:final_transfers}
 
@@ -146,7 +169,7 @@ def assess_reconciliation(folder):
 
 #with multiprocessing.Pool(processes=6) as pool:
 pool = multiprocessing.Pool(processes=10)
-results = pool.map(assess_reconciliation, os.listdir('reconciliations/'))
+results = pool.map(assess_reconciliation, os.listdir('reconciliations/')[100:1000])
 pool.close()
 pool.join()
 print 'yeah'
