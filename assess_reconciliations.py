@@ -168,8 +168,6 @@ def assess_reconciliation(folder):
             return None
         return assess_branch_compatibility(folder, reconciliation_data['transfers'], gene_tree, named_reference_tree)
 
-results = map(assess_reconciliation, os.listdir('reconciliations/'))
-
 #with multiprocessing.Pool(processes=6) as pool:
 pool = multiprocessing.Pool(processes=10)
 results = pool.map(assess_reconciliation, os.listdir('reconciliations/'))
