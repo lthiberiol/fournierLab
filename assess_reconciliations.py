@@ -7,8 +7,6 @@ import re
 from commands import getoutput
 import seaborn as sns
 from matplotlib import pyplot as plt
-from scipy.stats import pearsonr
-import pandas as pd
 import multiprocessing
 
 class cd:
@@ -168,7 +166,7 @@ def assess_reconciliation(folder):
 
 #with multiprocessing.Pool(processes=6) as pool:
 pool = multiprocessing.Pool(processes=10)
-results = pool.map(assess_reconciliation, os.listdir('reconciliations/'))
+results1 = pool.map(assess_reconciliation, os.listdir('reconciliations/'))
 pool.close()
 pool.join()
 
@@ -195,13 +193,20 @@ print 'yeah'
 ### fig.tight_layout()
 ### fig.savefig('rf_distances_norm.pdf', dpi=600)
 ###
-### fig, axs = plt.subplots(nrows=2)
-### axs[0].set_title('Ranger HGT confidences')
-### sns.distplot(transfer_supports,     ax=axs[0])
-### axs[1].set_title('Ranger mapping consistencies')
-### sns.distplot(mapping_consistencies, ax=axs[1])
-### fig.tight_layout()
-### fig.savefig('ranger_support_metrics.pdf', dpi=600)
+transfer_supports     = []
+mapping_consistencies = []
+for element in results1:
+    if element == None:
+        continue
+    transfer_supports.extend(element[0])
+    mapping_consistencies.extend(element[1])
+fig, axs = plt.subplots(nrows=2)
+axs[0].set_title('Ranger HGT confidences')
+sns.distplot(transfer_supports,     ax=axs[0])
+axs[1].set_title('Ranger mapping consistencies')
+sns.distplot(mapping_consistencies, ax=axs[1])
+fig.tight_layout()
+fig.savefig('ranger_support_metrics.pdf', dpi=600)
 
 farthest_leaf_from_root   = named_reference_tree.get_farthest_leaf(   topology_only=True)[0]
 longest_possible_distance = farthest_leaf_from_root.get_farthest_node(topology_only=True)[1]
