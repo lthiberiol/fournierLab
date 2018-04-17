@@ -81,13 +81,23 @@ def assess_branch_compatibility(folder, transfers, gene_tree, named_reference_tr
         #
         # assess donor branch compatibility
         rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reticulation.robinson_foulds(donor_branch, attr_t1='genome_name')
-        if rf_max and rf/rf_max > 0.2:
+        if rf_max:
+            rf_normalized = rf/float(rf_max)
+        else:
+            rf_normalized = 0.0
+
+        if rf_normalized > 0.2:
             continue
 
         #
         # assess recipient branch compatibility
         rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reticulation.robinson_foulds(recipient_branch, attr_t1='genome_name')
-        if rf_max and rf/rf_max > 0.2:
+        if rf_max:
+            rf_normalized = rf/float(rf_max)
+        else:
+            rf_normalized = 0.0
+
+        if rf_normalized > 0.2:
             continue
 
         donor_intersection     = [leaf.name for leaf in reticulation.get_leaves() if leaf.genome_name in donor_branch.get_leaf_names()    ]
@@ -179,6 +189,7 @@ for element in results:
     if type(element) is not dict or element.values() == [[]]:
         continue
     final_transfers.update(element)
+print 'yeah'
 
 out = open('final_transfers.pkl', 'wb')
 pkl.dump(final_transfers, out)
@@ -193,13 +204,13 @@ print 'yeah'
 ### fig.tight_layout()
 ### fig.savefig('rf_distances.pdf', dpi=600)
 ###
-### fig, axs = plt.subplots(nrows=2)
-### axs[0].set_title('Donor branch normalized Robinson-Foulds distances')
-### sns.distplot(rf_values['donor_normed'],     ax=axs[0])
-### axs[1].set_title('Recipient branch normalized Robinson-Foulds distances')
-### sns.distplot(rf_values['recipient_normed'], ax=axs[1])
-### fig.tight_layout()
-### fig.savefig('rf_distances_norm.pdf', dpi=600)
+fig, axs = plt.subplots(nrows=2)
+axs[0].set_title('Donor branch normalized Robinson-Foulds distances')
+sns.distplot(rf_values['donor'],     ax=axs[0])
+axs[1].set_title('Recipient branch normalized Robinson-Foulds distances')
+sns.distplot(rf_values['recipient'], ax=axs[1])
+fig.tight_layout()
+fig.savefig('rf_distances_norm.pdf', dpi=600)
 ###
 ### transfer_supports     = []
 ### mapping_consistencies = []
