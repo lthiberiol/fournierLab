@@ -204,13 +204,13 @@ print 'yeah'
 ### fig.tight_layout()
 ### fig.savefig('rf_distances.pdf', dpi=600)
 ###
-fig, axs = plt.subplots(nrows=2)
-axs[0].set_title('Donor branch normalized Robinson-Foulds distances')
-sns.distplot(rf_values['donor'],     ax=axs[0])
-axs[1].set_title('Recipient branch normalized Robinson-Foulds distances')
-sns.distplot(rf_values['recipient'], ax=axs[1])
-fig.tight_layout()
-fig.savefig('rf_distances_norm.pdf', dpi=600)
+### fig, axs = plt.subplots(nrows=2)
+### axs[0].set_title('Donor branch normalized Robinson-Foulds distances')
+### sns.distplot(rf_values['donor'],     ax=axs[0])
+### axs[1].set_title('Recipient branch normalized Robinson-Foulds distances')
+### sns.distplot(rf_values['recipient'], ax=axs[1])
+### fig.tight_layout()
+### fig.savefig('rf_distances_norm.pdf', dpi=600)
 ###
 ### transfer_supports     = []
 ### mapping_consistencies = []
