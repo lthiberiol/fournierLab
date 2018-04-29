@@ -11,6 +11,9 @@ import pickle as pkl
 import seaborn as sns
 from matplotlib import pyplot as plt
 
+os.chdir('/work/Alphas_and_Cyanos')
+named_reference_tree = ete3.Tree('rooted_partitions-with_named_branches.treefile', format=1)
+
 class cd:
     """  
     Context manager for changing the current working directory
@@ -25,176 +28,107 @@ class cd:
     def __exit__(self, etype, value, traceback):
         os.chdir(self.savedPath)
 
-os.chdir('/work/Alphas_and_Cyanos')
-named_reference_tree = ete3.Tree('rooted_partitions-with_named_branches.treefile', format=1)
+def assess_compatibilities(donor, recipient, reticulation):
+    #
+    # ignore reticulation if there is a duplication in it
+    if len(set([leaf.genome_name for leaf in reticulation.get_leaves()])) < len(reticulation):
+        return False
 
-def root_like( ref_tree, tree_to_root ):
-    outgroup = ''
-    for node in sorted( ref_tree.children, key=len ):
-        if node.is_leaf():
-            putative_outgroups = tree_to_root.get_leaves_by_name(node.name)
-            for leaf in putative_outgroups:
-                tree_to_root.set_outgroup( leaf )
-                if tree_to_root.get_topology_id() == ref_tree.get_topology_id():
-                    outgroup = leaf
-                    break
-        else:
-            outgroup_members = []
-            for leaf in node:
-                outgroup_members.append( tree_to_root.get_leaves_by_name(leaf.name) )
+    #
+    # assess donor branch compatibility
+    rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reticulation.robinson_foulds(donor, attr_t1='genome_name')
+    if rf_max:
+        rf_normalized = rf/float(rf_max)
+    else:
+        rf_normalized = 0.0
 
-            for outgroup_combination in itertools.product( *outgroup_members ):
-                if tree_to_root.check_monophyly( [x.name for x in outgroup_combination], 'name' )[0]:
-                    putative_outgroup = tree_to_root.get_common_ancestor( outgroup_combination )
-                    tree_to_root.set_outgroup( putative_outgroup )
-                    if tree_to_root.get_topology_id() == ref_tree.get_topology_id():
-                        outgroup = putative_outgroup
-                        break
-        if outgroup:
-            return tree_to_root
+    if rf_normalized > 0.2:
+        return False
 
-    if not outgroup:
+    #
+    # assess recipient branch compatibility
+    rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reticulation.robinson_foulds(recipient, attr_t1='genome_name')
+    if rf_max:
+        rf_normalized = rf/float(rf_max)
+    else:
+        rf_normalized = 0.0
+
+    if rf_normalized > 0.2:
+        return False
+
+    return True
+
+def assess_transfers(transfer_file, reference_tree=named_reference_tree, debug=False):
+    if not transfer_file.endswith('.pkl'):
         return None
 
-def assess_branch_compatibility(folder, transfers, gene_tree, named_reference_tree):
     selected_transfers = []
-    for transfer in transfers:
-        grep_query  = re.match('^(m\d+ = LCA\[\S+, \S+\]:)', transfer, re.M).group(1)
-        grep_result = getoutput( 'grep "%s" %s.reconciliation*' %(re.escape(grep_query), folder))
-        grep_result = set(re.sub('^%s.reconciliation\d+:' %folder, '', grep_result, flags=re.M).split('\n'))
-        #
-        # assess consistency of donor/recipient pair
-        if len(grep_result) > 1:
-            #
-            # inconsistent... sorry
-            continue
+    group              = transfer_file.replace('.pkl', '')
+    gene_tree          = ete3.Tree('/work/Alphas_and_Cyanos/ranger_input_trees/%s.tree' %group)
+    for leaf in gene_tree.get_leaves():
+        leaf.name = re.sub('\.\d+', '', leaf.name.replace('GCA_', 'GCA'))
+        leaf.add_feature('genome_name', leaf.name.split('_')[0])
 
-        transfer         = grep_result.pop()
-        donor, recipient = re.search('Mapping --> (\S+), Recipient --> (\S+)$', transfer, re.M).groups()
-        recipient_branch = named_reference_tree.search_nodes(name=recipient)[0].copy(method='deepcopy')
-        donor_branch     = named_reference_tree.search_nodes(name=donor    )[0].copy(method='deepcopy')
-        if recipient_branch.is_leaf() or donor_branch.is_leaf():
-            continue
-
-        reticulation = gene_tree.search_nodes(name=transfer.split()[0])[0]
-
-        #
-        # assess donor branch compatibility
-        rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reticulation.robinson_foulds(donor_branch, attr_t1='genome_name')
-        if rf_max:
-            rf_normalized = rf/float(rf_max)
+    transfer_data = pkl.load(open(transfer_file))
+    for donor, recipient, reticulation, topology_id in transfer_data:
+        is_it_monophyletic, clade_type, fucking_up = gene_tree.check_monophyly(reticulation.get_leaf_names(), 'name', unrooted=False)
+        if is_it_monophyletic:
+            reticulation_with_support = gene_tree.get_common_ancestor(reticulation.get_leaf_names())
         else:
-            rf_normalized = 0.0
+            gene_tree.set_outgroup(fucking_up.pop())
 
-        if rf_normalized > 0.2:
+            if debug:
+                is_it_monophyletic, clade_type, fucking_up = gene_tree.check_monophyly(reticulation.get_leaf_names(), 'name', unrooted=False)
+                if not is_it_monophyletic:
+                    raise KeyError('the reticulation is not monophyletic within the gene tree!')
+
+            reticulation_with_support = gene_tree.get_common_ancestor(reticulation.get_leaf_names())
+
+        if reticulation_with_support.support < 95:
             continue
 
-        #
-        # assess recipient branch compatibility
-        rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reticulation.robinson_foulds(recipient_branch, attr_t1='genome_name')
-        if rf_max:
-            rf_normalized = rf/float(rf_max)
-        else:
-            rf_normalized = 0.0
+        recipient_branch = reference_tree.search_nodes(name=recipient)[0].copy(method='deepcopy')
+        donor_branch     = reference_tree.search_nodes(name=donor    )[0].copy(method='deepcopy')
 
-        if rf_normalized > 0.2:
-            continue
+##        flag = assess_compatibilities(donor_branch, recipient_branch, reticulation_with_support)
+##        if not flag:
+##            continue
 
-        donor_intersection     = [leaf.name for leaf in reticulation.get_leaves() if leaf.genome_name in donor_branch.get_leaf_names()    ]
-        recipient_intersection = [leaf.name for leaf in reticulation.get_leaves() if leaf.genome_name in recipient_branch.get_leaf_names()]
+        donor_leaves     = [leaf.name for leaf in reticulation_with_support.get_leaves() if leaf.genome_name in donor_branch.get_leaf_names()    ]
+        recipient_leaves = [leaf.name for leaf in reticulation_with_support.get_leaves() if leaf.genome_name in recipient_branch.get_leaf_names()]
 
-        if not donor_intersection or not recipient_intersection:
-            continue
+        if debug:
+            is_it_monophyletic, clade_type, fucking_up = reticulation_with_support.check_monophyly(donor_leaves.get_leaf_names(), 'name', unrooted=False)
+            if not is_it_monophyletic:
+                raise KeyError('the donor leaves are not monophyletic within the reticulation!')
 
-        donor_branch_in_reticulation     = reticulation.get_common_ancestor(donor_intersection    )
-        recipient_branch_in_reticulation = reticulation.get_common_ancestor(recipient_intersection)
+            is_it_monophyletic, clade_type, fucking_up = reticulation_with_support.check_monophyly(recipient_leaves.get_leaf_names(), 'name', unrooted=False)
+            if not is_it_monophyletic:
+                raise KeyError('the recipient leaves are not monophyletic within the reticulation!')
+
+        donor_branch_in_reticulation     = reticulation_with_support.get_common_ancestor(    donor_leaves)
+        recipient_branch_in_reticulation = reticulation_with_support.get_common_ancestor(recipient_leaves)
 
         if donor_branch_in_reticulation in recipient_branch_in_reticulation.get_ancestors():
-            print '%s: recipient nested into donor' %folder
-            selected_transfers.append(transfer)
+            print '%s: recipient nested into donor' %group
+            selected_transfers.append((donor, recipient, reticulation, topology_id))
 
-    return {folder:selected_transfers}
+    return {group:selected_transfers}
 
-def assess_reconciliation(folder):
-    reconciliation_data = {'transfer_supports':[], 'mapping_consistencies':[], 'homologue_group':folder}
 
-    if not os.path.isdir('reconciliations/%s' %folder) or not os.path.isfile('reconciliations/%s/aggregate.reconciliation' %folder):
-        return
+with cd('aggregated'):
+    pool = multiprocessing.Pool(processes=6)
+    results = pool.map(assess_transfers, os.listdir('.'))
+    pool.close()
+    pool.join()
 
-    with cd('reconciliations/%s' %folder):
-        #
-        # load trees with named branches
-        named_gene_tree = ete3.Tree(open('%s.reconciliation1' %folder).readlines()[7], format=1 )
-
-        gene_tree       = ete3.Tree('../../iqtrees/%s.aln.treefile'      %folder, format=0)
-        for leaf in gene_tree.get_leaves():
-            leaf.name = re.sub('\.\d+', '', leaf.name.replace('GCA_', 'GCA'))
-            leaf.add_feature('genome_name', leaf.name.split('_')[0])
-
-        if set(named_gene_tree.get_leaf_names()).issubset(gene_tree.get_leaf_names()):
-            gene_tree.prune(named_gene_tree.get_leaf_names())
-        else:
-            print 'FUUUUUCK'
-        gene_tree = root_like(named_gene_tree, gene_tree)
-
-        reconciliation = open( 'aggregate.reconciliation' ).read()
-        for node_name, descendant1, descendant2 in re.findall('^(m\d+)\s=\sLCA\[(\S+),\s(\S+)\]', reconciliation, re.M):
-            branch      = gene_tree.get_common_ancestor([descendant1, descendant2])
-            branch.name = node_name
-
-        number_of_replications = float(re.match( '^Processed (\d+) files', reconciliation).group(1))
-        events                 = re.findall('^(m\d+\s=.*)$', reconciliation, re.M)
-
-        flag = False
-        for event in events:
-            transfer_support, mapping_node, mapping_consistency = re.search( ',\sTransfers\s=\s(\d+)], \[Most Frequent mapping --> (\S+), (\d+) times\]', event ).groups()
-            transfer_support    = float(transfer_support)
-            mapping_consistency = float(mapping_consistency)
-
-            reconciliation_data['transfer_supports'].append(transfer_support/number_of_replications)
-            if transfer_support:
-                reconciliation_data['mapping_consistencies'].append(mapping_consistency/transfer_support)
-
-            if transfer_support/number_of_replications >= 1 and transfer_support == mapping_consistency:
-                node_name    = event.split()[0]
-                try:
-                    reticulation = gene_tree.search_nodes(name=node_name)[0]
-                except:
-                    continue
-
-                if reticulation.support < 95:
-                    continue
-
-                if len(set([leaf.genome_name for leaf in reticulation.get_leaves()])) < len(reticulation):
-                    continue
-
-                if not flag:
-                    flag = True
-                    reconciliation_data['tree']      = gene_tree.copy(method='deepcopy')
-                    reconciliation_data['transfers'] = []
-                reconciliation_data['transfers'].append( event )
-
-        if not 'tree' in reconciliation_data:
-            return None
-        return assess_branch_compatibility(folder, reconciliation_data['transfers'], gene_tree, named_reference_tree)
-
-#with multiprocessing.Pool(processes=6) as pool:
-pool = multiprocessing.Pool(processes=10)
-results = pool.map(assess_reconciliation, os.listdir('reconciliations/'))
-pool.close()
-pool.join()
-
-final_transfers = {}
-for element in results:
-    if type(element) is not dict or element.values() == [[]]:
-        continue
-    final_transfers.update(element)
-print 'yeah'
-
-out = open('final_transfers.pkl', 'wb')
-pkl.dump(final_transfers, out)
-out.close()
-print 'yeah'
+usefull_results = {}
+for entry in results:
+    if entry and entry.values() != [[]]:
+        for key, value in entry.items():
+            if key not in usefull_results:
+                usefull_results[key] = []
+            usefull_results[key].extend(value)
 
 ### fig, axs = plt.subplots(nrows=2)
 ### axs[0].set_title('Donor branch Robinson-Foulds distances')
