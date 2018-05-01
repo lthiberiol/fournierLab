@@ -13,7 +13,7 @@ output_folder = '/work/Alphas_and_Cyanos/aggregated'
 folder = argv[1]
 group  =  folder.strip('/').split('/')[-1]
 if not os.path.isdir(folder) or not os.path.isfile('%s/%s.reconciliation1' %(folder, group)):
-    exit('**No valid reconciliation!')
+    exit('\n\t**ERROR, no valid reconciliation!\n')
 
 class cd:
     """  
@@ -45,6 +45,11 @@ def get_shared_transfers(transfer_descriptions, num_replicates, threshold=0.9):
     topology_ids        = [[transfer['topology_id'] for transfer in transfers] for transfers in transfer_descriptions]
     shared_topology_ids = set.intersection(*map(set, topology_ids))
 
+    #
+    # if no reticulation is shared by all reconciliations, ignore it
+    if not shared_topology_ids:
+        return None
+
     shared_reticulations = [tmp for tmp in itertools.chain.from_iterable(transfer_descriptions) if tmp['topology_id'] in shared_topology_ids]
     shared_reticulations = pd.DataFrame(shared_reticulations)
 
@@ -65,7 +70,6 @@ def traverse_reconciliations(folder):
     shared_transfers = get_shared_transfers(transfer_descriptions, num_replicates=counter-1, threshold=0.9)
 
     return shared_transfers
-
 
 with cd(folder):
     result = traverse_reconciliations(group)

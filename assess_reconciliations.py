@@ -4,10 +4,11 @@
 import ete3
 import os
 import re
-from commands import getoutput
 import multiprocessing
-import itertools
 import pickle as pkl
+import pandas as pd
+from commands import getoutput
+import itertools
 import seaborn as sns
 from matplotlib import pyplot as plt
 
@@ -28,11 +29,88 @@ class cd:
     def __exit__(self, etype, value, traceback):
         os.chdir(self.savedPath)
 
+def visualize_tree(group, transfers, reference_tree, taxonomy_df):
+    tmp_names = {}
+    gene_tree = ete3.Tree('/work/Alphas_and_Cyanos/ranger_input_trees/%s.tree' %group)
+    for leaf in gene_tree.get_leaves():
+        leaf.name = re.sub('\.\d+', '', leaf.name.replace('GCA_', 'GCA'))
+        leaf.add_feature('genome_name', leaf.name.split('_')[0])
+
+    for [donor, recipient, reticulation, topology_id] in transfers:
+
+        is_it_monophyletic, clade_type, fucking_up = gene_tree.check_monophyly(reticulation.get_leaf_names(), 'name', unrooted=False)
+        if is_it_monophyletic:
+            reticulation_with_support = gene_tree.get_common_ancestor(reticulation.get_leaf_names())
+        else:
+            gene_tree.set_outgroup(fucking_up.pop())
+            is_it_monophyletic, clade_type, fucking_up = gene_tree.check_monophyly(reticulation.get_leaf_names(), 'name', unrooted=False)
+            if not is_it_monophyletic:
+                raise KeyError("Reticulation is not monphyletic, something is really broken...")
+            reticulation_with_support = gene_tree.get_common_ancestor(reticulation.get_leaf_names())
+
+        #
+        # set reticulation name
+        tmp_id = str(random.random())
+        tmp_names[tmp_id] = '[&support=%.2f,hg_role="reticulation"]' %reticulation_with_support.support
+        reticulation_with_support.name  = tmp_id
+
+        donor_branch      = reference_tree.search_nodes(name=donor    )[0]
+        if 'annotation' not in donor_branch.features:
+            donor_branch.add_feature('annotation', [])
+        donor_branch.annotation.append('%s_role="donor"' %group)
+        recipient_branch      = reference_tree.search_nodes(name=recipient)[0]
+        if 'annotation' not in recipient_branch.features:
+            recipient_branch.add_feature('annotation', [])
+        recipient_branch.annotation.append('%s_role="recipient"' %group)
+
+        donor_leaves     = [leaf.name for leaf in reticulation_with_support.get_leaves() if leaf.genome_name in donor_branch.get_leaf_names()    ]
+        recipient_leaves = [leaf.name for leaf in reticulation_with_support.get_leaves() if leaf.genome_name in recipient_branch.get_leaf_names()]
+
+        #
+        # set donor name
+        donor_branch_in_reticulation      = reticulation_with_support.get_common_ancestor(    donor_leaves)
+        tmp_id                            = str(random.random())
+        tmp_names[tmp_id]                 = '[&support=%.2f,hgt_role="donor"]' %donor_branch_in_reticulation.support
+        donor_branch_in_reticulation.name = tmp_id
+
+        #
+        # set recipient name
+        recipient_branch_in_reticulation       = reticulation_with_support.get_common_ancestor(recipient_leaves)
+        tmp_id                                 = str(random.random())
+        tmp_names[tmp_id]                      = '[&support=%.2f,hgt_role="recipient"]' %recipient_branch_in_reticulation.support
+        recipient_branch_in_reticulation.name  = tmp_id
+
+    out  = open('/work/Alphas_and_Cyanos/index_transfer_trees/%s.Figtree.tree' %group, 'wb')
+    out.write("#NEXUS\nbegin taxa;\n\tdimensions ntax=%i;\n\ttaxlabels\n" %len(gene_tree))
+    for node in gene_tree.traverse():
+        if node.is_leaf():
+            out.write('\t%s ' %(node.name))
+            comment = []
+            for rank in ['organism_name', 'class', 'phylum', 'order']:
+                comment.append('tax_%s="%s"' %(rank, taxonomy_df.loc[node.genome_name, rank]))
+            out.write('[&%s]\n' %' '.join(comment))
+
+        else:
+            if node.support and not node.name:
+                node.name = '[&support=%.2f]' %node.support
+
+    newick_text = gene_tree.write(format=1)
+    newick_text = re.sub('_&support_(\d+\.\d\d)_', '[&support=\\1]', newick_text)
+    for key, value in tmp_names.items():
+        newick_text = newick_text.replace(key, value)
+    out.write(';\nend;\n')
+    out.write('begin trees;\n\ttree tree_1 = [&R] %s\nend;' %newick_text)
+    out.close()
+
+    return reference_tree
+
 def assess_compatibilities(donor, recipient, reticulation):
     #
     # ignore reticulation if there is a duplication in it
     if len(set([leaf.genome_name for leaf in reticulation.get_leaves()])) < len(reticulation):
-        return False
+        genomes_in_reticulation = [leaf.genome_name for leaf in reticulation.get_leaves()]
+        non_duplicated_leaves   = [leaf.name for leaf in reticulation.get_leaves() if genomes_in_reticulation.count(leaf.genome_name) == 1]
+        reticulation.prune(non_duplicated_leaves)
 
     #
     # assess donor branch compatibility
@@ -90,9 +168,8 @@ def assess_transfers(transfer_file, reference_tree=named_reference_tree, debug=F
         recipient_branch = reference_tree.search_nodes(name=recipient)[0].copy(method='deepcopy')
         donor_branch     = reference_tree.search_nodes(name=donor    )[0].copy(method='deepcopy')
 
-##        flag = assess_compatibilities(donor_branch, recipient_branch, reticulation_with_support)
-##        if not flag:
-##            continue
+        if not assess_compatibilities(donor_branch, recipient_branch, reticulation_with_support.copy(method='deepcopy')):
+            continue
 
         donor_leaves     = [leaf.name for leaf in reticulation_with_support.get_leaves() if leaf.genome_name in donor_branch.get_leaf_names()    ]
         recipient_leaves = [leaf.name for leaf in reticulation_with_support.get_leaves() if leaf.genome_name in recipient_branch.get_leaf_names()]
@@ -130,13 +207,107 @@ for entry in results:
                 usefull_results[key] = []
             usefull_results[key].extend(value)
 
+########################################################################################################################
+#                                                                                                                      #
+# HGT viazualitation with FigTree                                                                                      #
+#                                                                                                                      #
+########################################################################################################################
+genome_lineages = pd.read_table( '/work/lbi_backup/fournierLab/lineages_from_genbank_summary.tab', sep='\t', index_col=0, dtype=str )
+genome_lineages.index = genome_lineages.index.astype( str )
+genome_lineages['taxid'] = genome_lineages.index
+
+genbank_summary                     = pd.read_table( '/work/lbi_backup/assembly_summary_genbank.txt', dtype={'taxid':str, 'infraspecific_name':str} )
+genbank_summary['refseq_category']  = genbank_summary['refseq_category'].str.lower()
+genbank_summary['assembly_level']   = genbank_summary['assembly_level'].str.lower()
+genbank_summary['genome_rep']       = genbank_summary['genome_rep'].str.lower()
+genbank_summary                     = genbank_summary.merge( genome_lineages[['taxid', 'class', 'phylum', 'order']], how='left', on='taxid' )
+genbank_summary.set_index('assembly_accession', inplace=True)
+genbank_summary.index               = [re.sub('\.\d+$', '', index).replace('_', '') for index in genbank_summary.index]
+genbank_summary                     = genbank_summary.reindex(named_reference_tree.get_leaf_names())
+
+species_tree_to_color = named_reference_tree.copy(method='deepcopy')
+for group, transfers in usefull_results.items():
+    species_tree_to_color = visualize_tree(group, transfers, species_tree_to_color, genbank_summary)
+
+out  = open('/work/Alphas_and_Cyanos/index_transfer_trees/species_tree.Figtree.tree', 'wb')
+out.write("#NEXUS\nbegin taxa;\n\tdimensions ntax=%i;\n\ttaxlabels\n" %len(species_tree_to_color))
+for node in species_tree_to_color.traverse():
+    if node.is_leaf():
+        out.write('\t%s ' %(node.name))
+        comment = []
+        for rank in ['organism_name', 'class', 'phylum', 'order']:
+            comment.append('tax_%s="%s"' %(rank, genbank_summary.loc[node.name, rank]))
+        out.write('[&%s]\n' %' '.join(comment))
+
+    else:
+        if 'annotation' in node.features:
+            node.name = '[&%s]' %','.join(node.annotation)
+
+newick_text = species_tree_to_color.write(format=1)
+newick_text = newick_text.replace('role_"', 'role="')
+newick_text = newick_text.replace('"_:', '"]:')
+newick_text = newick_text.replace(')_&', ')[&')
+newick_text = re.sub('_(\d{6}_role="(?:donor|recipient)")', ',\\1', newick_text)
+out.write(';\nend;\n')
+out.write('begin trees;\n\ttree tree_1 = [&R] %s\nend;' %newick_text)
+out.close()
+
+
+
+
+
+
+
+rf_values={'donor':[], 'recipient':[]}
+for group, transfers in usefull_results.items():
+    gene_tree          = ete3.Tree('/work/Alphas_and_Cyanos/ranger_input_trees/%s.tree' %group)
+    for leaf in gene_tree.get_leaves():
+        leaf.name = re.sub('\.\d+', '', leaf.name.replace('GCA_', 'GCA'))
+        leaf.add_feature('genome_name', leaf.name.split('_')[0])
+
+    for donor, recipient, reticulation, topology_id in transfers:
+        is_it_monophyletic, clade_type, fucking_up = gene_tree.check_monophyly(reticulation.get_leaf_names(), 'name', unrooted=False)
+        if is_it_monophyletic:
+            reticulation_with_support = gene_tree.get_common_ancestor(reticulation.get_leaf_names())
+        else:
+            gene_tree.set_outgroup(fucking_up.pop())
+            reticulation_with_support = gene_tree.get_common_ancestor(reticulation.get_leaf_names())
+
+        recipient_branch = named_reference_tree.search_nodes(name=recipient)[0].copy(method='deepcopy')
+        donor_branch     = named_reference_tree.search_nodes(name=donor    )[0].copy(method='deepcopy')
+
+        genomes_in_reticulation = [leaf.genome_name for leaf in reticulation_with_support.get_leaves()]
+        non_duplicated_leaves   = [leaf.name for leaf in reticulation_with_support.get_leaves() if genomes_in_reticulation.count(leaf.genome_name) == 1]
+        reticulation_with_support.prune(non_duplicated_leaves)
+
+        #
+        # assess donor branch compatibility
+        rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reticulation_with_support.robinson_foulds(
+            donor_branch, attr_t1='genome_name')
+        if rf_max:
+            rf_normalized = rf / float(rf_max)
+        else:
+            rf_normalized = 0.0
+
+        rf_values['donor'].append(rf_normalized)
+
+        #
+        # assess recipient branch compatibility
+        rf, rf_max, names, edges_t1, edges_t2, discarded_edges_t1, discarded_edges_t2 = reticulation_with_support.robinson_foulds(
+            recipient_branch, attr_t1='genome_name')
+        if rf_max:
+            rf_normalized = rf / float(rf_max)
+        else:
+            rf_normalized = 0.0
+        rf_values['recipient'].append(rf_normalized)
+
 ### fig, axs = plt.subplots(nrows=2)
 ### axs[0].set_title('Donor branch Robinson-Foulds distances')
 ### sns.distplot(rf_values['donor'],     ax=axs[0])
 ### axs[1].set_title('Recipient branch Robinson-Foulds distances')
 ### sns.distplot(rf_values['recipient'], ax=axs[1])
 ### fig.tight_layout()
-### fig.savefig('rf_distances.pdf', dpi=600)
+### fig.savefig('rf_distances-index_transfer.pdf', dpi=600)
 ###
 ### fig, axs = plt.subplots(nrows=2)
 ### axs[0].set_title('Donor branch normalized Robinson-Foulds distances')
