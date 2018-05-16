@@ -74,6 +74,7 @@ def traverse_reconciliations(folder):
 with cd(folder):
     result = traverse_reconciliations(group)
 
-out = open('%s/%s.pkl' %(output_folder, group), 'wb')
-pkl.dump(result, out)
-out.close()
+if result:
+    out = open('%s/%s.pkl' %(output_folder, group), 'wb')
+    pkl.dump(result, out)
+    out.close()
