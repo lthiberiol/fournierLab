@@ -164,7 +164,11 @@ def assess_compatibilities(donor, recipient, reticulation):
 
     return True
 
-def find_most_similar_branch(branch, tree):
+def jaccard(i,j):
+    j_index = len(i.intersection(j))/float(len(i.union(j)))
+    return 1-j_index
+
+def find_most_similar_branch(branch, tree, jaccard_threshold=0.25, exceptions=None):
     branch_leaves     = set(branch.get_leaf_names())
     tree_genomes      = set([leaf.genome_name for leaf in tree.get_leaves()])
     intersect_genomes = branch_leaves.intersection(tree_genomes)
@@ -189,17 +193,23 @@ def find_most_similar_branch(branch, tree):
             minimal_rf_distance = rf
             most_similar_branch = node
 
-    delta_size = float(abs(len(branch) - len(most_similar_branch)))
-    if delta_size/len(branch) > 1:
-        return None
-    else:
-        return most_similar_branch
+    most_similar_branch_genomes = set([leaf.genome_name for leaf in most_similar_branch.get_leaves()])
+
+    if exceptions is not None:
+        exceptions_genomes = set([leaf.genome_name for leaf in exceptions.get_leaves()])
+        most_similar_branch_genomes.difference_update(exceptions_genomes)
+
+    j_distance = jaccard(most_similar_branch_genomes, branch_leaves)
+    if j_distance > jaccard_threshold:
+        return None,None
+    return (most_similar_branch, j_distance)
 
 def assess_transfers(transfer_file, reference_tree=named_reference_tree, debug=False):
     if not transfer_file.endswith('.pkl'):
         return None
 
     selected_transfers = []
+    jaccard = {'donor':[], 'recipient':[]}
     group              = transfer_file.replace('.pkl', '')
     try:
         gene_tree          = ete3.Tree('/work/Alphas_and_Cyanos/ranger_input_trees/%s.tree' %group)
@@ -231,8 +241,8 @@ def assess_transfers(transfer_file, reference_tree=named_reference_tree, debug=F
         donor_branch     = reference_tree.search_nodes(name=donor    )[0].copy(method='deepcopy')
         recipient_branch = reference_tree.search_nodes(name=recipient)[0].copy(method='deepcopy')
 
-        donor_branch_in_reticulation     = find_most_similar_branch(donor_branch, reticulation_with_support)
-        recipient_branch_in_reticulation = find_most_similar_branch(recipient_branch, reticulation_with_support)
+        recipient_branch_in_reticulation, recipient_j_distance = find_most_similar_branch(recipient_branch, reticulation_with_support, jaccard_threshold=0.5)
+        donor_branch_in_reticulation, donor_j_distance     = find_most_similar_branch(donor_branch, reticulation_with_support, jaccard_threshold=0.5, exceptions=recipient_branch_in_reticulation)
 
         if not recipient_branch_in_reticulation or not donor_branch_in_reticulation:
             continue
@@ -249,8 +259,10 @@ def assess_transfers(transfer_file, reference_tree=named_reference_tree, debug=F
             recipient_branch_in_reticulation.add_feature('hgt_event', len(selected_transfers))
 
             selected_transfers.append((donor, recipient))
+            jaccard['donor'].append(donor_j_distance)
+            jaccard['recipient'].append(recipient_j_distance)
 
-    return {group:{'donor/recipient':selected_transfers,'gene_tree':gene_tree, 'rf_values':rf_values, 'deltas':deltas}}
+    return {group:{'donor/recipient':selected_transfers,'gene_tree':gene_tree, 'jaccard':jaccard}}
 
 aggregated_folder = 'aggregated/90_threshold'
 with cd(aggregated_folder):
@@ -259,15 +271,13 @@ with cd(aggregated_folder):
     pool.close()
     pool.join()
 
+jaccard_dists = {'donor':[], 'recipient':[]}
 usefull_results = {}
-rf_values = {'donor':[], 'recipient':[]}
-deltas = {'donor':[], 'recipient':[]}
 for entry in results:
     if entry and entry.values()[0]['donor/recipient']:
         usefull_results.update(entry)
         for yeah in 'donor recipient'.split():
-            rf_values[yeah].extend(entry.values()[0]['rf_values'][yeah])
-            deltas[yeah].extend(entry.values()[0]['deltas'][yeah])
+            jaccard_dists[yeah].extend(entry.values()[0]['jaccard'][yeah])
 
 with cd(aggregated_folder):
     out = open('index_transfers.pkl', 'wb')
@@ -394,11 +404,11 @@ fig.savefig('rf_distances_norm.pdf', dpi=600)
 ###
 fig, axs = plt.subplots(nrows=2)
 axs[0].set_title('Donor branch size variation')
-sns.distplot([rf for rf in deltas['donor'] if pd.notnull(rf)],     ax=axs[0])
+sns.distplot(jaccard_dists['donor'],     ax=axs[0])
 axs[1].set_title('Recipient branch size variation')
-sns.distplot([rf for rf in deltas['recipient'] if pd.notnull(rf)], ax=axs[1])
+sns.distplot(jaccard_dists['recipient'], ax=axs[1])
 fig.tight_layout()
-fig.savefig('size_variation_norm.pdf', dpi=1200)
+fig.savefig('jaccard_branch_distances.pdf', dpi=1200)
 ###
 ### transfer_supports     = []
 ### mapping_consistencies = []
