@@ -132,6 +132,23 @@ def visualize_tree(group, transfers, reference_tree, taxonomy_df, output_folder=
 
     return reference_tree
 
+def rename_branches(reconciliation_file):
+    reconciliation = open(reconciliation_file).read()
+    tree = ete3.Tree(reconciliation.split('\n')[7], format=1)
+    branches = re.findall('^(m\d+) = LCA\[(\S+), (\S+)\]', reconciliation, re.M)
+    for node in tree.traverse():
+        if node.is_leaf():
+            continue
+        else:
+            node.name = ''
+    for name, leaf1, leaf2 in branches:
+        node = tree.get_common_ancestor(leaf1, leaf2)
+        if node.name:
+            print node.get_leaves_by_name()
+            break
+        node.name = name
+    return tree
+
 def assess_compatibilities(donor, recipient, reticulation):
     #
     # ignore reticulation if there is a duplication in it
