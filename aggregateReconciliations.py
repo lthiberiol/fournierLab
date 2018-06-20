@@ -42,14 +42,6 @@ def get_branches_with_transfers(reconciliation_file, leaves_allowed=False):
             yield {'reticulation':reticulation.copy(method='deepcopy'), 'topology_id':reticulation.get_topology_id(), 'donor':donor, 'recipient':recipient}
 
 def get_shared_transfers(transfer_descriptions, num_replicates, threshold=0.9):
-    topology_ids        = [[transfer['topology_id'] for transfer in transfers] for transfers in transfer_descriptions]
-    shared_topology_ids = set.intersection(*map(set, topology_ids))
-
-    #
-    # if no reticulation is shared by all reconciliations, ignore it
-    if not shared_topology_ids:
-        return None
-
     shared_reticulations = [tmp for tmp in itertools.chain.from_iterable(transfer_descriptions)]
     shared_reticulations = pd.DataFrame(shared_reticulations)
 
@@ -58,21 +50,23 @@ def get_shared_transfers(transfer_descriptions, num_replicates, threshold=0.9):
 
     return shared_transfers
 
-def traverse_reconciliations(folder):
+def traverse_reconciliations(folder, sufix='reconciliation'):
     transfer_descriptions = []
-    counter              = 0
+    counter               = 0
     while True:
         counter += 1
-        if not os.path.isfile('%s.reconciliation%i' %(folder, counter)):
+        if not os.path.isfile('{group}{sufix}{counter}'.format(group=folder, sufix=sufix, counter=counter)):
             break
-        transfer_descriptions.append(list(get_branches_with_transfers('%s.reconciliation%i' %(folder, counter))))
+        transfer_descriptions.append(list(get_branches_with_transfers('{group}{sufix}{counter}'.format(group=folder, sufix=sufix, counter=counter))))
+
+    if not transfer_descriptions:
+        return None
 
     shared_transfers = get_shared_transfers(transfer_descriptions, num_replicates=counter-1, threshold=0.9)
-
     return shared_transfers
 
 with cd(folder):
-    result = traverse_reconciliations(group)
+    result = traverse_reconciliations(group, sufix='-MAD.ranger_out')
 
 if result:
     out = open('%s/%s.pkl' %(output_folder, group), 'wb')
