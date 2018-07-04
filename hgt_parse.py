@@ -74,7 +74,7 @@ class hgt:
         self.output_folder          = output_folder.strip()
         self.tree_folder            = tree_folder.strip()
         self.reconciliations_folder = reconciliations_folder.strip()
-        self.reconciliation_sufix   = reconciliation_sufix
+        self.reconciliation_sufix   = reconciliation_sufix.strip()
 
         header = 'assembly_accession bioproject biosample wgs_master refseq_category taxid species_taxid organism_name infraspecific_name isolate version_status assembly_level release_type genome_rep seq_rel_date asm_name submitter gbrs_paired_asm paired_asm_comp ftp_path excluded_from_refseq relation_to_type_material'.split()
         genbank_summary                     = pd.read_table(assembly_summary, comment='#', header=None, names=header, dtype={'taxid':str, 'infraspecific_name':str})
@@ -137,7 +137,8 @@ class hgt:
                         support_tree.set_outgroup(support_tree.get_common_ancestor(tmp_tree.children[1].get_leaf_names()))
 
                 if support_tree.get_topology_id() != tmp_tree.get_topology_id():
-                    raise ValueError('%s support and named trees not matching: reconciliation_count=%i' %(group, reconciliation_count))
+                    return {group:[]}
+                    #raise ValueError('%s support and named trees not matching: reconciliation_count=%i' %(group, reconciliation_count))
 
                 mapped_donors       = {topology_id:'' for donor, recipient, reticulation, topology_id in transfer_data}
                 map_count           = 0

@@ -34,7 +34,8 @@ with open(sys.argv[1]) as configuration_file:
 
     #
     # try to find the block containing script's parameters
-    parameter_block   = re.search( '^generate_reference_tree.py\s?\{([\s\S]*)\}', configuration_file.read(), re.M ) 
+    configuration_file = open('/Users/thiberio/PycharmProjects/fournierLab/generate_phylogeny.conf')
+    parameter_block   = re.search( '^reconstruct_lineages.py\s?\{([\s\S]*?)\}', configuration_file.read(), re.M )
     if not parameter_block:
         sys.exit('Could not find parameters respective to "generate_reference_tree.py", sorry...')
 

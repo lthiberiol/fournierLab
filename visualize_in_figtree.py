@@ -22,6 +22,7 @@ refseq_summary['genome_rep']       = refseq_summary['genome_rep'].str.lower()
 refseq_summary.set_index( 'assembly_accession', inplace=True )
 
 assembly_summary = refseq_summary.append(genbank_summary)
+assembly_summary.index = [index.replace('_', '').split('.')[0] for index in assembly_summary.index]
 
 if os.path.isdir(sys.argv[1]):
     print 'Input is a folder'
@@ -47,9 +48,10 @@ if os.path.isdir(sys.argv[1]):
                     continue
 
                 out.write('\t%s ' %(node.name))
-                comment = ['source_name="%s"' %assembly_summary.loc[node.name, 'organism_name']]
+                comment = ['source_name="%s"' %assembly_summary.loc[genome, 'organism_name']]
                 for rank in ['class', 'phylum', 'order', 'family']:
-                    comment.append('tax_%s="%s"' %(rank, assembly_summary.loc[genome, rank]))
+                    if rank in lineage:
+                        comment.append('tax_%s="%s"' %(rank, assembly_summary.loc[genome, rank]))
                 out.write('[&%s]\n' %' '.join(comment))
 
             else:
@@ -81,16 +83,17 @@ else:
     branch_names = {}
     for node in tree.traverse():
         if node.is_leaf():
-            if node.name not in assembly_summary.index:
+            genome, gene = node.name.split('_')
+            if genome not in assembly_summary.index:
                 out.write('\t%s\n' %(node.name))
                 continue
 
-            taxid = assembly_summary.loc[node.name, 'taxid']
+            taxid = assembly_summary.loc[genome, 'taxid']
             lineage = {j: i for i, j in ncbi.get_rank(ncbi.get_lineage(taxid)).items()}
             lineage_names = ncbi.get_taxid_translator(lineage.values())
 
             out.write('\t%s ' % (node.name))
-            comment = ['source_name="%s"' %assembly_summary.loc[node.name, 'organism_name']]
+            comment = ['source_name="%s"' %assembly_summary.loc[genome, 'organism_name']]
             for rank in ['class', 'phylum', 'order', 'family']:
                 if rank in lineage:
                     comment.append('tax_%s="%s"' % (rank, lineage_names[lineage[rank]]))

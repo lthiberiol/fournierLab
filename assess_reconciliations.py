@@ -300,9 +300,27 @@ for group, transfers in usefull_results.items():
         donor_branch     = named_reference_tree.search_nodes(name=transfer['donor']    )[0]
         recipient_branch = named_reference_tree.search_nodes(name=transfer['recipient'])[0]
 
-        transfer_distances[group].append(              donor_branch.get_distance(recipient_branch))
-        donor2root_distances[group].append(    named_reference_tree.get_distance(donor_branch,     topology_only=True))
-        recipient2root_distances[group].append(named_reference_tree.get_distance(recipient_branch, topology_only=True))
+        transfer_distances[group].append(              donor_branch.get_distance(recipient_branch, topology_only=False))
+        donor2root_distances[group].append(    named_reference_tree.get_distance(donor_branch,     topology_only=False))
+        recipient2root_distances[group].append(named_reference_tree.get_distance(recipient_branch, topology_only=False))
+
+gene_tree_dtl = {}
+for group in usefull_results.keys():
+    reconciliation_cost = open('/work/Alphas_and_Cyanos/reconciliations/{group}/{group}.reconciliation1'.format(group=group)).readlines()[-3]
+    gene_tree_dtl[group] = float(re.match('The minimum reconciliation cost is: (\d+) ', reconciliation_cost).group(1))
+
+donor_recipients = []
+for transfers in usefull_results.values():
+    for transfer in transfers:
+        donor_recipients.append((transfer['donor'], transfer['recipient']))
+donor_recipient_frequency = collections.Counter(donor_recipients)
+
+yeah = {}
+for group, transfers in usefull_results.items():
+    yeah[group] = []
+    for transfer in transfers:
+        yeah[group].append(donor_recipient_frequency[(transfer['donor'], transfer['recipient'])])
+
 
 out = open('index_transfers_dtl_distances.pkl', 'wb')
 pkl.dump(distances, out)
@@ -328,18 +346,74 @@ for group in dtl_distances.keys():
 plot = sns.jointplot(x=pd.Series(name='Recipient subtrees DTL distances', data=x), y=pd.Series(name='Recipient node "bipartition distance" to root', data=y), color='black', joint_kws={'s':3, 'alpha':0.3})
 plot.savefig('%s/dtl_VS_rootDistance-recipients.pdf' %aggregated_folder, dpi=600)
 
-tracer = {'color':'black', 'x':[], 'y':[], 'text':[], 'linecolor':'transparent', 'marker':'circle'}
+x, y = [],[]
+for group in dtl_distances.keys():
+    for dtl in dtl_distances[group]['recipient']:
+        x.append(dtl)
+        y.append(gene_tree_dtl[group])
+plot = sns.jointplot(x=pd.Series(name='Recipient subtrees DTL distances', data=x), y=pd.Series(name='Total gene tree reconciliation cost', data=y), color='black', joint_kws={'s':3, 'alpha':0.3})
+plot.savefig('dtl-recipient_VS_gene_tree.pdf', dpi=600)
+
+x, y = [],[]
+for group in dtl_distances.keys():
+    for i,j in zip(yeah[group], transfer_distances[group]):
+        x.append(i)
+        y.append(j)
+plot = sns.jointplot(x=pd.Series(name='Transfer frequency among families', data=x), y=pd.Series(name='Donor/Recipient patristic distance', data=y), color='black', joint_kws={'s':3, 'alpha':0.3})
+plot.savefig('transfer_support_VS_distance.pdf', dpi=600)
+
+tracer = {'color':[], 'x':[], 'y':[], 'text':[], 'linecolor':'transparent', 'marker':'circle', 'color_means':'Branch length between Donor/Recipient', 'marker_size':[]}
 for group in dtl_distances.keys():
     for position in range(len(dtl_distances[group]['recipient'])):
         tracer['x'].append(dtl_distances[group]['recipient'][position])
-        tracer['y'].append(transfer_distances[group][position])
+        tracer['y'].append(dtl_distances[group]['donor'][position])
         tracer['text'].append('%s-#%i' %(group, position))
+        tracer['color'].append(transfer_distances[group][position])
+        tracer['marker_size'].append(donor_recipient_frequency[(usefull_results[group][position]['donor'], usefull_results[group][position]['recipient'])])
 
-plot_data = go.Data([go.Scatter(x=tracer['x'], y=tracer['y'], mode='markers', text=tracer['text'], name='Subtree differences VS transfer distances', hoverinfo='text',
-                        marker=dict(size=10, color=tracer['color'], symbol=tracer['marker'], opacity=0.75))])
-layout    = go.Layout(title='Subtree differences VS transfer distances', hovermode='closest', width=1200, height=1000, xaxis=dict(title='Recipient subtrees DTL distances'), yaxis=dict(title='Bipartition distance between donor/recipient'))
+color_range = np.linspace(0, np.max(tracer['color']), 100)
+color_bins  = np.digitize(tracer['color'], color_range)
+bins        = []
+for n in range(100):
+    bins.append(go.Scatter(x=[], y=[], mode='markers', text=[], name=str(round(color_range[n], 2)), hoverinfo='text', showlegend=False,
+                        marker=dict(size=[], color=[], colorscale='RdBu', cmax=np.max(tracer['color']), cmin=np.min(tracer['color']), symbol=tracer['marker'], opacity=1.,
+               )))
+
+for position in range(len(tracer['color'])):
+    current_bin = color_bins[position] - 1
+    for feature in ['x', 'y', 'text']:
+        bins[current_bin][feature].append(tracer[feature][position])
+    bins[current_bin]['marker']['color'].append(tracer['color'][position])
+    bins[current_bin]['marker']['size'].append(10 + tracer['marker_size'][position])
+
+steps = [dict(label='All',
+                method='restyle',
+                args=[
+                    'visible', [True] * (len(bins) + 1)
+                ])
+]
+for i in range(len(bins)):
+    step = dict(label=bins[i]['name'],
+                method='restyle',
+                args=[
+                    'visible', [False] * i + [True] * (len(bins) - i)
+                ])
+    step['args'][1].append(True)
+    steps.append(step)
+slider = dict(steps=steps, currentvalue={'prefix':'%s: ' %tracer['color_means']}, pad={'t':50})
+bins.append(go.Scatter(x=[np.min(tracer['x']), np.max(tracer['x'])], y=[np.min(tracer['y']), np.max(tracer['y'])], showlegend=False, mode='markers',
+                       marker=dict(size=10, color=[0.5], colorscale='RdBu', cmax=np.max(tracer['color']), cmin=np.min(tracer['color']), symbol=tracer['marker'], opacity=0,
+                                    colorbar=dict(title=tracer['color_means']))
+                       ))
+
+plot_data = go.Data(bins)
+layout    = go.Layout(title='Donor/Recipient subtree reconciliation costs', hovermode='closest', width=1200, height=1000,
+                      xaxis=dict(title='Recipient subtree reconciliation costs'),
+                      yaxis=dict(title='Donor subtree reconciliation costs'),
+#                      legend=dict(orientation='h'),
+                      sliders=[slider])
 fig       = go.Figure(data=plot_data, layout=layout)
-plot      = plotly.offline.plot(fig, filename='subtreeDiff_VS_transferDist-patristic.html', auto_open=False)
+plot      = plotly.offline.plot(fig, filename='/Library/WebServer/Documents/indexTransfers/donor_VS_recipient_DTL-transfer_distance.html', auto_open=False)
 ########################################################################################################################
 #                                                                                                                      #
 # HGT vizualitation with FigTree                                                                                       #

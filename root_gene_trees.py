@@ -182,21 +182,17 @@ plot.figure.savefig('test_optimal_rootings/reconciliation_costs.pdf', bbox_inche
 plot.clear()
 plt.close()
 
-
 mad_costs = {}
-for reconciliation_file in os.listdir('test_mad/'):
-    if not reconciliation_file.endswith('ranger_out'):
-        continue
-    dtl = int(re.match('The minimum reconciliation cost is: (\d+)', open('test_mad/%s' %reconciliation_file).readlines()[-3]).group(1))
-    mad_costs[reconciliation_file.split('.tree')[0]] = dtl
+for group in single_optimal_rooting:
+    dtl = int(re.match('The minimum reconciliation cost is: (\d+)', open('comparing_rooting_methods/mad_reconciliations/%s/%s-MAD.ranger_out1' %(group,group)).readlines()[-3]).group(1))
+    mad_costs[group] = dtl
 
 ranger_optimal_costs = {}
-for group in mad_costs.keys():
+for group in single_optimal_rooting:
     dtl = int(re.match('The minimum reconciliation cost is: (\d+)', open('reconciliations/{group}/{group}.reconciliation1'.format(group=group)).readlines()[-3]).group(1))
     ranger_optimal_costs[group] = dtl
 
 delta_dtl = {group:mad_costs[group]-ranger_optimal_costs[group] for group in mad_costs.keys()}
-
 
 fig, axs = plt.subplots(nrows=2)
 sns.distplot(delta_dtl.values(), ax=axs[0])
@@ -231,6 +227,14 @@ out = open('groups_with_single_optimal_DTL_root.list', 'wb')
 out.write('\n'.join(single_optimal_rooting))
 out.close()
 
+transfers = [hgt.assess_transfers(transfer_file) for transfer_file in transfer_files]
+results = {}
+[results.update(transfer) for transfer in transfers]
+out = open('aggregated/mad_index_transfers.pkl', 'w')
+pkl.dump(results, out)
+out.close()
+transfers = [hgt.visualize_tree(*transfer, output_folder='/work/Alphas_and_Cyanos/index_transfer_trees/mad') for transfer in results.items()]
+
 
 ########################################################################################################################
 def root_distances(group):
@@ -240,13 +244,13 @@ def root_distances(group):
         if node.is_leaf():
             leaf = tree2.get_leaves_by_name(node.name)[0]
             root_distances = tree2.get_distance(leaf, topology_only=True)
-            return (root_distances, root_distances/tree2.get_farthest_leaf(topology_only=True)[1])
+            return (root_distances, root_distances/(2*len(tree2)-3))
         else:
             is_it_monophyletic, clade_type, fucking_up = tree2.check_monophyly(node.get_leaf_names(), 'name', unrooted=False)
             if is_it_monophyletic:
                 equivalent = tree2.get_common_ancestor(node.get_leaf_names())
                 root_distances = tree2.get_distance(equivalent, topology_only=True)
-                return (root_distances, root_distances/tree2.get_farthest_leaf(topology_only=True)[1])
+                return (root_distances, root_distances/(2*len(tree2)-3))
             else:
                 continue
     return None
@@ -287,11 +291,22 @@ fig.clear()
 plt.close()
 
 sorted_by_root_distance = sorted(norm.items(), key=operator.itemgetter(1))
+########################################################################################################################
+########################################################################################################################
+def parse_supported_transfers(handle, threshold=0.6):
+    text                      = handle.read()
+    number_of_reconciliations = int(re.match('Processed (\d+) files', text).group(1))
+    if number_of_reconciliations != 20:
+        return None
+    transfers = re.findall('^.*, Transfers = [^0]\d?\], \[Most Frequent mapping --> (n\S+), (\d+) times\], \[Most Frequent recipient --> (n\S+), (\d+) times\].', text, re.M)
+    supported_pairs = []
+    for donor, donor_support, recipient, recipient_support in transfers:
+        if int(donor_support) < threshold*number_of_reconciliations or int(recipient_support) < threshold*number_of_reconciliations:
+            continue
+        supported_pairs.append((donor, recipient))
 
-
-
-
-
+    return supported_pairs
+########################################################################################################################
 ########################################################################################################################
 
 os.chdir('/work/Alphas_and_Cyanos/comparing_rooting_methods')
@@ -319,7 +334,7 @@ with cd('/work/Alphas_and_Cyanos/comparing_rooting_methods/ranger/'):
             os.system('/work/ranger/CorePrograms/AggregateRanger_recipient {group}/{group}.reconciliation > {group}/aggregated'.format(group=group))
 
         handle = open('%s/aggregated' %group)
-        ranger_supported_pairs[group] = parse_supported_transfers(handle, threshold=0.3)
+        ranger_supported_pairs[group] = parse_supported_transfers(handle, threshold=0.6)
 
 with cd('/work/Alphas_and_Cyanos/comparing_rooting_methods/mad_reconciliations/'):
     mad_supported_pairs = {}
@@ -330,7 +345,7 @@ with cd('/work/Alphas_and_Cyanos/comparing_rooting_methods/mad_reconciliations/'
             os.system('/work/ranger/CorePrograms/AggregateRanger_recipient {group}/{group}-MAD.ranger_out > {group}/aggregated'.format(group=group))
 
         handle = open('%s/aggregated' %group)
-        mad_supported_pairs[group] = parse_supported_transfers(handle, threshold=0.3)
+        mad_supported_pairs[group] = parse_supported_transfers(handle, threshold=0.6)
 
 with cd('/work/Alphas_and_Cyanos/comparing_rooting_methods/random_root_reconciliations/'):
     random_root_supported_pairs = {}
