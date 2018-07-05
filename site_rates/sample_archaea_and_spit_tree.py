@@ -3,14 +3,13 @@
 
 import ete3
 import os
-import re
-import pickle as pkl
 import itertools
 import pandas as pd
 import subprocess
+from Bio import SeqIO, SearchIO
 import re
-from Bio import SeqIO
 from popen2 import popen2
+import pickle as pkl
 import numpy as np
 import random
 from commands import getoutput
@@ -144,10 +143,44 @@ with cd('hmm_search/'):
     print run_hmmsearch('tmp_xargs_list', num_threads=20, working_dir='hmm_search',
                      genome_dir='/work/site_rate/faas', profile_dir='/work/site_rate/hmm_models_same_as_smc')
 
+failed_searches = [filename for filename in os.listdir('hmm_search/') if filename.endswith('.faa.hmm_out') and not os.path.getsize('hmm_search/%s' %filename)]
 
+profiles = [hmm.replace('.hmm', '') for hmm in os.listdir('hmm_models_same_as_smc')]
+genomes  = [faa.replace('.faa', '') for faa in os.listdir('faas')]
 
+#
+# fill the "marker_sequences" DataFrame with the ID of the sequences matching the HMM profiles in each genome
+#
+marker_sequences = pd.DataFrame(columns=profiles, index=genomes)
+for search in os.listdir('hmm_search/'):
+    if search.startswith('.') or not search.endswith('.faa.hmm_out'):
+        continue
+    profile, genome = search.split('_-_')
+    profile         = profile.replace('.hmm', '')
+    genome          = genome.replace('.faa.hmm_out', '')
+    result          = SearchIO.read( 'hmm_search/%s' %search, 'hmmer3-text' )
+    for hit in result.iterhits():
+        if hit.evalue <= 1e-10:
+            marker_sequences.loc[genome, profile] = hit.id.split('|')[1]
+            break
+marker_sequences.drop(['GCF_001315945.1', 'GCF_001316065.1'], axis=0, inplace=True)
+marker_sequences.dropna(how='any', thresh=117, axis=1, inplace=True)
 
+#
+# create file handles for each marker gene, where we are gonna add the sequences from each genome
+gene_family_handles = {profile_name:open('gene_families/%s.fasta' %profile_name, 'wb')
+                        for profile_name in marker_sequences.columns}
+for index, row in marker_sequences.iterrows():
+    print index
+    fasta = SeqIO.parse( 'faas/%s.faa' %index, 'fasta' )
+    for protein in fasta:
+        if any(row == protein.id.split('|')[1]):
+            gene_family = row[row == protein.id.split('|')[1]].iteritems().next()[0]
+            SeqIO.write(protein, gene_family_handles[gene_family], 'fasta')
 
+for gene_family, handle in gene_family_handles.items():
+    handle.close()
+print '\t** FASTAs of gene families created!'
 
 
 
