@@ -65,9 +65,9 @@ def parse_aggregated(folder, threshold=0.9, leaves_allowed=False):
     num_replicates = float(re.match('Processed (\d+) files', aggregated).group(1))
 
     if not leaves_allowed:
-        transfers = re.findall('^(m\d+) = .*, Transfers = [^0]\d?\], \[Most Frequent mapping --> (n\d+), (\d+) times\], \[Most Frequent recipient --> (n\d+), (\d+) times\].', aggregated, re.M)
+        transfers = re.findall('^(m\d+) = .*, Transfers = [^0]\d+?\], \[Most Frequent mapping --> (n\d+), (\d+) times\], \[Most Frequent recipient --> (n\d+), (\d+) times\].', aggregated, re.M)
     else:
-        transfers = re.findall('^(m\d+) = .*, Transfers = [^0]\d?\], \[Most Frequent mapping --> (\S+), (\d+) times\], \[Most Frequent recipient --> (\S+), (\d+) times\].',   aggregated, re.M)
+        transfers = re.findall('^(m\d+) = .*, Transfers = [^0]\d+?\], \[Most Frequent mapping --> (\S+), (\d+) times\], \[Most Frequent recipient --> (\S+), (\d+) times\].',   aggregated, re.M)
 
     supported_transfers = []
     for donor_map, donor, ranger_confidence_donor, recipient, ranger_confidence_recipient in transfers:
@@ -99,6 +99,6 @@ with cd('reconciliations/mad_roots'):
         if filtered.values() != [[]]:
             yeah.update(filtered)
 
-    out = open('parsed_transfers-90.pkl', 'wb')
-    pkl.dump(yeah, out)
-    out.close()
+out = open('aggregated/mad-90_threshold.pkl', 'wb')
+pkl.dump(yeah, out)
+out.close()
