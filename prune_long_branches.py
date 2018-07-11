@@ -12,6 +12,8 @@ def remove_long_branches(tree_file):
         branch_lengths.append(node.dist)
 
     quartile_3 = np.percentile(branch_lengths, 75)
+    iqi        = np.percentile(branch_lengths, 75) - np.percentile(branch_lengths, 25)
+    thresh     = np.mean(branch_lengths) + iqi * 20
 
     taxa_to_remove = set()
     for node in tree.traverse():
