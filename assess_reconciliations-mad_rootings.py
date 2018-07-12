@@ -8,6 +8,11 @@ import multiprocessing
 import pickle as pkl
 import linecache
 import pandas as pd
+import numpy as np
+import plotly
+import plotly.plotly as ptl
+from plotly import graph_objs as go
+ptl.sign_in('lthiberiol', 'm15ikp59lt')
 
 os.chdir('/work/Alphas_and_Cyanos')
 ncbi = ete3.NCBITaxa()
@@ -98,7 +103,6 @@ def parse_aggregated(folder, threshold=0.9, leaves_allowed=False):
     return {folder:[selected_transfers, gene_tree]}
 
 with cd('reconciliations/mad_roots'):
-    yeah = map(parse_aggregated, '000049 000050'.split())
     pool = multiprocessing.Pool(processes=4)
     transfers = pool.map(parse_aggregated, os.listdir('.'))
     pool.close()
@@ -240,3 +244,144 @@ for key, value in tmp_names.items():
 out.write(';\nend;\n')
 out.write('begin trees;\n\ttree tree_1 = [&R] %s\nend;' %newick_text)
 out.close()
+
+########################################################################################################################
+#                                                                                                                      #
+#                                                                                                                      #
+#                                                                                                                      #
+#                                                                                                                      #
+########################################################################################################################
+
+def assess_dtl_dist((group, (transfer_data, gene_tree))):
+    dtl_distances = {'donor':[], 'recipient':[]}
+    donor_trees     = []
+    recipient_trees = []
+    for transfer in transfer_data:
+        recipient_branch = gene_tree.search_nodes(name=transfer['recipient_map'])[0]
+        donor_branch     = recipient_branch.get_sisters()[0]
+
+
+        donor_trees.append(    donor_branch.write(    format=9))
+        recipient_trees.append(recipient_branch.write(format=9))
+
+    #
+    # donor compatibility assessment
+    os.system( 'cp ranger_input_trees/species_tree.template tmp_ranger-%s.input' %(multiprocessing.current_process().name))
+    out = open('tmp_ranger-%s.input' %multiprocessing.current_process().name, 'a')
+    out.write('\n'.join(donor_trees))
+    out.close()
+    os.system('/home/thiberio/ranger/CorePrograms/Ranger-DTL.linux -q -i tmp_ranger-%s.input -o tmp_ranger-%s.output' %(multiprocessing.current_process().name, multiprocessing.current_process().name))
+    dtl_distances['donor'].extend([int(reconciliation_cost) for reconciliation_cost in re.findall('^The minimum reconciliation cost is: (\d+)', open('tmp_ranger-%s.output' %multiprocessing.current_process().name).read(), re.M)])
+
+    #
+    # recipient compatibility assessment
+    os.system( 'cp ranger_input_trees/species_tree.template tmp_ranger-%s.input' %(multiprocessing.current_process().name))
+    out = open('tmp_ranger-%s.input' %multiprocessing.current_process().name, 'a')
+    out.write('\n'.join(recipient_trees))
+    out.close()
+    os.system('/home/thiberio/ranger/CorePrograms/Ranger-DTL.linux -q -i tmp_ranger-%s.input -o tmp_ranger-%s.output' %(multiprocessing.current_process().name, multiprocessing.current_process().name))
+    dtl_distances['recipient'].extend([int(reconciliation_cost) for reconciliation_cost in re.findall('^The minimum reconciliation cost is: (\d+)', open('tmp_ranger-%s.output' %multiprocessing.current_process().name).read(), re.M)])
+
+    return {group:dtl_distances}
+
+dtl_distances = pkl.load(open('aggregated/mad-90_threshold-donor-recipient_branches_dtl.pkl'))
+
+transfer_distances       = {group:[] for group in transfers.keys()}
+for group, (transfer_data, gene_tree) in transfers.items():
+    for transfer in transfer_data:
+
+        donor_branch     = reference_tree.search_nodes(name=transfer['donor']    )[0]
+        recipient_branch = reference_tree.search_nodes(name=transfer['recipient'])[0]
+
+        transfer_distances[group].append(donor_branch.get_distance(recipient_branch, topology_only=False))
+
+tracer = {'color':[], 'x':[], 'y':[], 'text':[], 'linecolor':'transparent', 'marker':'circle', 'color_means':'Branch length between Donor/Recipient', 'marker_size':10}
+for group in dtl_distances.keys():
+    for position in range(len(dtl_distances[group]['recipient'])):
+        tracer['x'    ].append(dtl_distances[group]['recipient'][position])
+        tracer['y'    ].append(dtl_distances[group]['donor'][position])
+        tracer['text' ].append('%s-#%i' %(group, position))
+        tracer['color'].append(transfer_distances[group][position])
+
+color_range = np.linspace(0, np.max(tracer['color']), 100)
+color_bins  = np.digitize(tracer['color'], color_range)
+bins        = []
+for n in range(100):
+    bins.append(go.Scatter(x=[], y=[], mode='markers', text=[], name=str(round(color_range[n], 2)), hoverinfo='text', showlegend=False,
+                        marker=dict(size=tracer['marker_size'], color=[], colorscale='RdBu', cmax=np.max(tracer['color']), cmin=np.min(tracer['color']), symbol=tracer['marker'], opacity=1.,
+               )))
+
+for position in range(len(tracer['color'])):
+    current_bin = color_bins[position] - 1
+    for feature in ['x', 'y', 'text']:
+        bins[current_bin][feature].append(tracer[feature][position])
+    bins[current_bin]['marker']['color'].append(tracer['color'][position])
+
+steps = [dict(label='All',
+                method='restyle',
+                args=[
+                    'visible', [True] * (len(bins) + 1)
+                ])
+]
+for i in range(len(bins)):
+    step = dict(label=bins[i]['name'],
+                method='restyle',
+                args=[
+                    'visible', [False] * i + [True] * (len(bins) - i)
+                ])
+    step['args'][1].append(True)
+    steps.append(step)
+slider = dict(steps=steps, currentvalue={'prefix':'%s: ' %tracer['color_means']}, pad={'t':50})
+bins.append(go.Scatter(x=[np.min(tracer['x']), np.max(tracer['x'])], y=[np.min(tracer['y']), np.max(tracer['y'])], showlegend=False, mode='markers',
+                       marker=dict(size=10, color=[0.5], colorscale='RdBu', cmax=np.max(tracer['color']), cmin=np.min(tracer['color']), symbol=tracer['marker'], opacity=0,
+                                    colorbar=dict(title=tracer['color_means']))
+                       ))
+
+plot_data = go.Data(bins)
+layout    = go.Layout(title='Donor/Recipient subtree reconciliation costs', hovermode='closest', width=1200, height=1000,
+                      xaxis=dict(title='Recipient subtree reconciliation costs'),
+                      yaxis=dict(title='Donor subtree reconciliation costs'),
+#                      legend=dict(orientation='h'),
+                      sliders=[slider])
+fig       = go.Figure(data=plot_data, layout=layout)
+plot      = plotly.offline.plot(fig, filename='/Library/WebServer/Documents/indexTransfers/mad-donor_VS_recipient_DTL-transfer_distance.html', auto_open=False)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
