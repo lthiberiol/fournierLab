@@ -2,6 +2,9 @@ import ete3
 import os
 import re
 import subprocess
+import numpy as np
+import seaborn as sns
+from matplotlib import pyplot as plt
 
 class cd:
     """
@@ -66,3 +69,34 @@ def assess_mad_consistency(tree_file):
             root_distances.append(minimal_value)
 
     return root_distances
+
+os.chdir('/work/Alphas_and_Cyanos')
+
+########################################################################################################################
+less_stringent = []
+for tmp in pkl.load(open('ranger_input_trees-no_long_branches/subtrees_root_distances.pkl')):
+    less_stringent.extend(tmp)
+
+more_stringent = []
+similar = []
+dissimilar = []
+for tmp in pkl.load(open('ranger_input_trees-no_long_branches2/subtrees_root_distances.pkl')):
+    more_stringent.extend(tmp)
+    close_flag = True
+    for n in tmp:
+        if n > 2:
+            close_flag = False
+            break
+
+    if close_flag:
+        similar.append(tmp)
+    else:
+        dissimilar.append(tmp)
+
+fig, ax = plt.subplots()
+sns.kdeplot(less_stringent, ax=ax, label='Less stringent branch length cut-off')
+sns.kdeplot(more_stringent, ax=ax, label='More stringent branch length cut-off')
+ax.set_xlabel('Distance between root positions')
+ax.set_ylabel('Frequency')
+fig.tight_layout()
+fig.savefig('yeah.pdf')
