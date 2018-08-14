@@ -10,7 +10,7 @@ from itertools import combinations
 import multiprocessing
 import pandas as pd
 
-os.chdir('/work/Alphas_and_Cyanos')
+os.chdir('/work/Alphas_and_Cyanos/reconciliations/ranger_roots')
 
 class cd:
     """
@@ -42,7 +42,9 @@ def assess_tree_balance_ranger(folder):
         children = sorted(tree.children, key=len)
         ratios.append(len(children[0])/float(len(children[1])))
 
-    return ratios
+    dtl_cost = re.match('The minimum reconciliation cost is: (\d+)', open('%s/%s.reconciliation1' %(folder, folder)).readlines()[-3]).group(1)
+
+    return ratios, int(dtl_cost), len(tree)
 
 def assess_tree_balance_mad(folder):
     if not os.path.isfile('%s/%s-MAD.ranger_input' %(folder, folder)):
@@ -53,18 +55,45 @@ def assess_tree_balance_mad(folder):
 
     return len(children[0])/float(len(children[1]))
 
+group_list = os.listdir('.')
+to_remove  = []
+for n in group_list:
+    if not os.path.isfile('%s/%s.optResolution1.ranger_input' %(n, n)):
+        to_remove.append(n)
+
+for n in to_remove:
+    group_list.remove(n)
+
 pool = multiprocessing.Pool(processes=6)
-tmp_balance = pool.map(assess_tree_balance_mad, os.listdir('.'))
+tmp_balance = pool.map(assess_tree_balance_mad, group_list)
 mad_balance = []
 for n in tmp_balance:
     if n:
         mad_balance.append(n)
 
 pool = multiprocessing.Pool(processes=8)
-tmp_balance = pool.map(assess_tree_balance_ranger, os.listdir('.'))
-ranger_balance = []
-for n in tmp_balance:
-    ranger_balance.extend(n)
+tmp_balance = pool.map(assess_tree_balance_ranger, group_list)
+ranger_balance  = []
+dtl_cost        = []
+compare_balance = {'with_transfer_on_root':[], 'without_transfer_on_root':[]}
+transfers_on_root = collections.Counter(open('/Users/thiberio/transfers_on_root').read().split())
+for a, (n,m,k) in zip(group_list, tmp_balance):
+    for i in n:
+        ranger_balance.append(i)
+        dtl_cost.append(m/float(k))
+    if a in transfers_on_root:
+        compare_balance['with_transfer_on_root'   ].append(m/float(k))
+    else:
+        compare_balance['without_transfer_on_root'].append(m/float(k))
+
+fig, ax = plt.subplots()
+sns.kdeplot(compare_balance['with_transfer_on_root'], color='blue',     shade=True, ax=ax, label='Root labeled as transfer')
+sns.kdeplot(compare_balance['without_transfer_on_root'], color='green', shade=True, ax=ax, label='Root labeled as speciation')
+ax.set_xlabel('Normalized reconciliation costs')
+ax.set_ylabel('Density')
+fig.set_size_inches(15,8)
+fig.tight_layout()
+fig.savefig('../dtl_costs-transfer_on_root.pdf', dpi=300)
 
 fig, axs = plt.subplots(nrows=2, sharex=True)
 sns.kdeplot(ranger_balance, shade=True, color='blue', ax=axs[0])
@@ -75,8 +104,52 @@ axs[1].set_title('MAD topologies tree balance')
 axs[1].set_xlabel('root children balance distribution')
 axs[1].set_ylabel('Frequency')
 fig.tight_layout()
-fig.savefig('balance_distribution.pdf', dpi=300)
+fig.savefig('../balance_distribution.pdf', dpi=300)
 
+########################################################################################################################
+#                                                                                                                      #
+# Duplication Transfer ratio                                                                                           #
+########################################################################################################################
+def assess_balance_DT_ratio(folder):
+    ratios    = []
+    dt_ratios = []
+    trees     = []
+    count     = 1
+    while os.path.isfile('%s/%s.optResolution%i.ranger_input' %(folder, folder, count)):
+        trees.append(ete3.Tree(open('%s/%s.optResolution%i.ranger_input' %(folder, folder, count)).readlines()[1]))
+        dtl_cost, d, t = re.match('The minimum reconciliation cost is: (\d+) \(Duplications: (\d+), Transfers: (\d+)', open('%s/%s.reconciliation%i' %(folder, folder, count)).readlines()[-3]).groups()
+        dt_ratios.append(float(d)/float(t))
+        count += 1
+
+    for tree in trees:
+        children = sorted(tree.children, key=len)
+        ratios.append(len(children[0])/float(len(children[1])))
+
+    return ratios, dt_ratios, int(dtl_cost), len(tree)
+
+pool = multiprocessing.Pool(processes=8)
+tmp_balance = pool.map(assess_balance_DT_ratio, group_list)
+ranger_balance  = []
+dtl_costs       = []
+dt_ratios       = []
+for group, (balance_ratio, dt_ratio, dtl_cost, num_leaves) in zip(group_list, tmp_balance):
+    dt_ratios.append(np.mean(dt_ratio))
+    for pos in range(len(balance_ratio)):
+        ranger_balance.append(balance_ratio[pos])
+        dt_ratios.append(dt_ratio[pos])
+        dtl_costs.append(dtl_cost)
+
+fig, ax = plt.subplots()
+sns.kdeplot(dt_ratios, color='blue', shade=True, ax=ax)
+ax.set_xlabel('Mean family DT ratio')
+fig.set_size_inches(15,8)
+fig.tight_layout()
+fig.savefig('../tmp_ratio.pdf', dpi=300)
+
+chart = sns.jointplot(x=pd.Series(name='Balance ratio', data=dtl_costs),
+                      y=pd.Series(name='DT ratio', data=dt_ratios))
+chart.fig.tight_layout()
+chart.savefig('../tmp_jointplot.pdf', dpi=300)
 ########################################################################################################################
 #                                                                                                                      #
 # ASSESS ALPHA AND CYANO SEPARATION                                                                                    #
