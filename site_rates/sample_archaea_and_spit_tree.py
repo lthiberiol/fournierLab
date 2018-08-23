@@ -6,16 +6,19 @@ import os
 import itertools
 import pandas as pd
 import subprocess
-from Bio import SeqIO, SearchIO
+from Bio import SeqIO, SearchIO, AlignIO, Align, Alphabet
 import re
+import multiprocessing
+from copy import deepcopy
 from popen2 import popen2
 import pickle as pkl
 import numpy as np
 import random
 from commands import getoutput
-import multiprocessing
 
 ########################################################################################################################
+aln_alphabet = Alphabet.Gapped(Alphabet.IUPAC.ambiguous_dna)
+
 class cd:
     """
     Context manager for changing the current working directory
@@ -67,21 +70,39 @@ def run_hmmsearch(xargs_input_file, num_threads=1, working_dir='~', genome_dir='
     return os.system("cat {input_file} | xargs -n 2 -P {num_threads} sh -c 'hmmsearch --acc --noali --cpu 1 -o $1_-_$2.hmm_out {profile_dir}/$1 {genome_dir}/$2' sh".format(
         input_file=xargs_input_file, num_threads=num_threads, working_dir=working_dir,
         genome_dir=genome_dir, profile_dir=profile_dir))
+
+def run_mafft(input_file):
+    output = open('%s.aln' %input_file, 'w')
+    signal = subprocess.call(['mafft', '--auto', '--reorder', input_file], stdout=output)
+    output.close()
+    return signal
 ########################################################################################################################
 
 os.chdir('/work/site_rate')
 
 ncbi = ete3.NCBITaxa()
 
+#
+# already done!
+#
 header = 'assembly_accession bioproject biosample wgs_master refseq_category taxid species_taxid organism_name infraspecific_name isolate version_status assembly_level release_type genome_rep seq_rel_date asm_name submitter gbrs_paired_asm paired_asm_comp ftp_path excluded_from_refseq relation_to_type_material'.split()
-assembly_summary                     = pd.read_table('assembly_summary.txt', comment='#', header=None, names=header, dtype={'taxid':str, 'infraspecific_name':str})
-assembly_summary['refseq_category']  = assembly_summary['refseq_category'].str.lower()
-assembly_summary['assembly_level']   = assembly_summary['assembly_level'].str.lower()
-assembly_summary['genome_rep']       = assembly_summary['genome_rep'].str.lower()
+assembly_summary                    = pd.read_table('assembly_summary.txt', comment='#', header=None, names=header, dtype={'taxid':str, 'infraspecific_name':str})
+assembly_summary['refseq_category'] = assembly_summary['refseq_category'].str.lower()
+assembly_summary['assembly_level']  = assembly_summary['assembly_level'].str.lower()
+assembly_summary['genome_rep']      = assembly_summary['genome_rep'].str.lower()
 assembly_summary.set_index('assembly_accession', inplace=True)
+
+assembly_summary_outgroup                    = pd.read_table('outgroups.tab', comment='#', header=None, names=header, dtype={'taxid':str, 'infraspecific_name':str})
+assembly_summary_outgroup['refseq_category'] = assembly_summary_outgroup['refseq_category'].str.lower()
+assembly_summary_outgroup['assembly_level']  = assembly_summary_outgroup['assembly_level'].str.lower()
+assembly_summary_outgroup['genome_rep']      = assembly_summary_outgroup['genome_rep'].str.lower()
+assembly_summary_outgroup.set_index('assembly_accession', inplace=True)
 
 lineages = {}
 for index, row in assembly_summary.iterrows():
+    tmp_lineage = {j: int(i) for i, j in ncbi.get_rank(ncbi.get_lineage(row.taxid)).items()}
+    lineages[index] = tmp_lineage
+for index, row in assembly_summary_outgroup.iterrows():
     tmp_lineage = {j: int(i) for i, j in ncbi.get_rank(ncbi.get_lineage(row.taxid)).items()}
     lineages[index] = tmp_lineage
 
@@ -93,6 +114,11 @@ genus_groups    = lineages.groupby(by='genus')
 genus_names     = ncbi.get_taxid_translator(lineages.genus.unique())
 sampled_genomes = {}
 for genus, indexes in genus_groups.groups.items():
+    if indexes.intersection(assembly_summary_outgroup.index).shape[0]:
+        for index in indexes:
+            sampled_genomes[genus_names[genus]] = index
+        continue
+
     tmp_df = assembly_summary.loc[indexes, 'refseq_category assembly_level genome_rep'.split()].copy()
     for filter in itertools.product(['reference genome', 'representative genome', 'na'],
                                      ['complete genome', 'chromosome', 'scaffold', 'contig'],
@@ -106,8 +132,10 @@ for genus, indexes in genus_groups.groups.items():
             sampled_genomes[genus_names[genus]] = tmp_df.iloc[0].name
             break
 
+assembly_summary = assembly_summary.append(assembly_summary_outgroup)
 assembly_summary = assembly_summary.reindex(index=sampled_genomes.values()).join(lineages)
 assembly_summary.to_csv('sampled_genomes.tab', sep='\t')
+assembly_summary = pd.read_table('sampled_genomes.tab', index_col=0, comment='#', dtype={'taxid':str, 'infraspecific_name':str})
 
 for index, row in assembly_summary.iterrows():
     subprocess.call(['wget', '-P', 'genomes/', '%s/*_protein.faa.gz' %row.ftp_path])
@@ -182,42 +210,66 @@ for gene_family, handle in gene_family_handles.items():
     handle.close()
 print '\t** FASTAs of gene families created!'
 
+pool = multiprocessing.Pool(processes=4)
+results = pool.map_async(run_mafft, [handle.name for handle in gene_family_handles.values()])
+pool.close()
+pool.join()
 
+missing_genes = {} # just to keep track of the number of missing marker genes in each genome
+concatenation = {}
+for genome in genomes:
+    missing_genes[genome]             = 0
+    concatenation[genome]             = Align.SeqRecord( Align.Seq('', aln_alphabet) )
+    concatenation[genome].name        = genome
+    concatenation[genome].id          = genome
+    concatenation[genome].description = genome
 
+#
+# fill the handles with the marker sequences from each genome
+total_genes     = 0.0 # keep track of the number of genes added to the concatenation
+partition_file  = open('partition_file.txt', 'wb')
+partition_start = 1
+for group, handle in gene_family_handles.items():
 
+    alignment = '%s.aln' %handle.name
 
+    if not os.path.isfile(alignment):
+        continue
 
+    total_genes += 1
+    tmp_aln    = AlignIO.read(alignment, 'fasta')
+    aln_length = tmp_aln.get_alignment_length() # get the expected size of the alignment so you can compare if all have the same size
 
+    observed_genome = []
+    fucked_up        = False
+    for block in list(tmp_aln):
+        # if this alignment has a different size from the rest, something is reaaaaaly wrong!
+        if len(block) != aln_length:
+            fucked_up = True
+            break
 
+        genome = block.id.split('|')[0]
 
+        if genome in observed_genome:
+            fucked_up = True
+            break
+        else:
+            observed_genome.append(genome)
+            concatenation[genome] += deepcopy( block.seq )
 
+    partition_file.write('LG, %s = %i-%i\n' % (group, partition_start, partition_start + aln_length - 1))
+    partition_start += aln_length
 
+    #
+    # add gaps for those genomes missing this gene (same size as the expected alignment)
+    for genome in set(genomes).difference( observed_genome ):
+        concatenation[genome] += Align.Seq( '-' * aln_length, aln_alphabet )
+        missing_genes[genome] += 1
 
+    if fucked_up:
+        sys.exit( '\t**Problem with MSA concatenation: %s' %alignment )
+partition_file.close()
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+#
+# write the final concatenation
+AlignIO.write(Align.MultipleSeqAlignment(concatenation.values()),'ribosomal_concat.aln', 'fasta')
