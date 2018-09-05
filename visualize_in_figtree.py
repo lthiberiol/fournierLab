@@ -24,6 +24,7 @@ refseq_summary.set_index( 'assembly_accession', inplace=True )
 assembly_summary = refseq_summary.append(genbank_summary)
 assembly_summary.index = [index.replace('_', '').split('.')[0] for index in assembly_summary.index]
 
+print 'yeah'
 if os.path.isdir(sys.argv[1]):
     print 'Input is a folder'
 
@@ -75,6 +76,7 @@ else:
     print 'Input is a tree file'
     #
     # single tree
+    print 'yeah'
     tree_folder = '.'
     tree_file   = sys.argv[1]
     tree = ete3.Tree('%s/%s' %(tree_folder, tree_file), format=1)
@@ -82,11 +84,18 @@ else:
     out.write("#NEXUS\nbegin taxa;\n\tdimensions ntax=%i;\n\ttaxlabels\n" %len(tree))
     branch_names = {}
     for node in tree.traverse():
+        print 'yeah'
         if node.is_leaf():
-            genome, gene = node.name.split('_')
+            genome = node.name.split('_')[0]
+            if genome == node.name:
+                gene = ''
+            else:
+                gene = node.name.split('_')[1]
             if genome not in assembly_summary.index:
                 out.write('\t%s\n' %(node.name))
                 continue
+
+            print genome
 
             taxid = assembly_summary.loc[genome, 'taxid']
             lineage = {j: i for i, j in ncbi.get_rank(ncbi.get_lineage(taxid)).items()}
