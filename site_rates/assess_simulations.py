@@ -101,8 +101,8 @@ fig, ax = plt.subplots()
 for num in range(18):
     ax.add_patch(plt.Rectangle((num-0.4, -5), 0.8, 110, fill=True, color='grey', alpha=0.1))
 
-for category in [1,2,4,6,8]:
-#for category in range(1,9):
+#for category in [1,2,4,6,8]:
+for category in range(1,9):
     tmp_df             = pd.DataFrame.from_dict(support_values[category])
     tmp_df['category'] = category
 
