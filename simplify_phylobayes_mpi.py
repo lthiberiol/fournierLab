@@ -24,12 +24,11 @@ burnin        = 1000
 sampling_each = 100
 #
 # total number of threads to be used
-total_threads = 21
+phylobayes_threads = 20
 
 #
 # phylobayes parameters
 #
-phylobayes_threads = (total_threads-1) / 2
 def run_chain(alignment, chain_name, num_threads=phylobayes_threads, memmory_size=5, time_limit=170):
     sbatch = 'sbatch -p sched_mit_g4nier -n {num_threads} -N 1 \
 --mem={memmory_size}GB --time={num_hours}:00:00 \
