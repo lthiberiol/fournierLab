@@ -54,6 +54,7 @@ def traverse_reconciliations(folder, sufix='reconciliation'):
     transfer_descriptions = []
     counter               = 0
     while True:
+        print counter
         counter += 1
         if not os.path.isfile('{group}{sufix}{counter}'.format(group=folder, sufix=sufix, counter=counter)):
             break

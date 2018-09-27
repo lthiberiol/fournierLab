@@ -209,7 +209,7 @@ for genome in genomes:
 
 #
 # fill the handles with the marker sequences from each genome
-total_genes = 0.0 # keep track of the number of genes added to the concatenation
+total_genes      = 0.0 # keep track of the number of genes added to the concatenation
 for alignment in os.listdir(output_folder):
     if not alignment.endswith('.aln'):
         continue

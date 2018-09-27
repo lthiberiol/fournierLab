@@ -55,7 +55,7 @@ def root_like( ref_tree, tree2 ):
                 equivalent = tree_to_root.get_common_ancestor(node.get_leaf_names())
                 tree_to_root.set_outgroup(equivalent)
             else:
-                gene_tree.set_outgroup(fucking_up.pop())
+                tree_to_root.set_outgroup(fucking_up.pop())
                 equivalent = tree_to_root.get_common_ancestor(node.get_leaf_names())
                 tree_to_root.set_outgroup(equivalent)
             break
@@ -81,8 +81,8 @@ with cd('reconciliations/ranger_roots'):
             single_optimal_rooting.append(group)
 
 def parse_supported_transfers(handle, threshold=0.9, leaves_allowed=False):
-    text                      = handle.read()
-    number_of_reconciliations = int(re.match('Processed (\d+) files', text).group(1))
+    text                          = handle.read()
+    number_of_reconciliations     = int(re.match('Processed (\d+) files', text).group(1))
     if number_of_reconciliations != 20:
         return None
     if leaves_allowed:
@@ -97,6 +97,47 @@ def parse_supported_transfers(handle, threshold=0.9, leaves_allowed=False):
 
     return supported_pairs
 
+def rename_branches(reconciliation_file, tree):
+    branches = re.findall('^(m\d+) = LCA\[(\S+), (\S+)\]:', reconciliation_file, re.M)
+    for name, leaf1, leaf2 in branches:
+        node = tree.get_common_ancestor(leaf1, leaf2)
+        if node.name:
+            continue
+        node.name = name
+    return tree
+
+def parse_aggregated(folder, threshold=0.0, leaves_allowed=False):
+    with cd(folder):
+        aggregated    = open('aggregated').read()
+        reconciliation_file = re.search('%s(-\S+?\.ranger_out|\.reconciliation)1' %folder, '\t'.join(os.listdir('.'))).group()
+        gene_tree     = {'named':ete3.Tree(linecache.getline(reconciliation_file, 8), format=1)}
+
+    gene_tree['support'] = root_like(gene_tree['named'], ete3.Tree('/work/Alphas_and_Cyanos/ranger_input_trees/%s.tree' %folder))
+    gene_tree            = rename_branches(aggregated, gene_tree['support'])
+
+    num_replicates = float(re.match('Processed (\d+) files', aggregated).group(1))
+
+    if not leaves_allowed:
+        transfers = re.findall('^(m\d+) = .*, Transfers = [^0]\d+?\], \[Most Frequent mapping --> (n\d+), (\d+) times\], \[Most Frequent recipient --> (n\d+), (\d+) times\].', aggregated, re.M)
+    else:
+        transfers = re.findall('^(m\d+) = .*, Transfers = [^0]\d+?\], \[Most Frequent mapping --> (\S+), (\d+) times\], \[Most Frequent recipient --> (\S+), (\d+) times\].',   aggregated, re.M)
+
+    supported_transfers = []
+    for donor_map, donor, ranger_confidence_donor, recipient, ranger_confidence_recipient in transfers:
+        if int(ranger_confidence_donor) < threshold*num_replicates or int(ranger_confidence_recipient) < threshold*num_replicates:
+            continue
+        supported_transfers.append((donor_map, donor, recipient))
+
+    selected_transfers = []
+    for donor_map_name, donor_name, recipient_name in supported_transfers:
+        donor_map = gene_tree.search_nodes(name=donor_map_name)[0]
+        if donor_map.support < 95:
+            continue
+
+        selected_transfers.append((donor_name, recipient_name))
+
+    return selected_transfers
+
 ########################################################################################################################
 #                                                                                                                      #
 # Highly supported transfers                                                                                           #
@@ -104,45 +145,41 @@ def parse_supported_transfers(handle, threshold=0.9, leaves_allowed=False):
 
 os.chdir('/work/Alphas_and_Cyanos/comparing_rooting_methods')
 
+to_remove = []
 with cd('/work/Alphas_and_Cyanos/comparing_rooting_methods/random_root_reconciliations/'):
-    random_root_supported_pairs = {}
     for group in single_optimal_rooting:
         if not os.path.isdir(group) or not os.path.isfile('{group}/{group}-random_root.ranger_out1'.format(group=group)):
-            continue
-        handle = open('%s/aggregated' %group)
-        random_root_supported_pairs[group] = parse_supported_transfers(handle, threshold=0.9)
+            to_remove.append(group)
+for group in to_remove:
+    single_optimal_rooting.remove(group)
+
+with cd('/work/Alphas_and_Cyanos/comparing_rooting_methods/random_root_reconciliations/'):
+    pool = multiprocessing.Pool(processes=6)
+    random_root_supported_pairs = pool.map(parse_aggregated, single_optimal_rooting)
 
 with cd('/work/Alphas_and_Cyanos/comparing_rooting_methods/ranger/'):
-    ranger_supported_pairs = {}
-    for group in random_root_supported_pairs.keys():
-        handle = open('%s/aggregated' %group)
-        ranger_supported_pairs[group] = parse_supported_transfers(handle, threshold=0.9)
+    pool = multiprocessing.Pool(processes=6)
+    ranger_supported_pairs = pool.map(parse_aggregated, single_optimal_rooting)
 
 with cd('/work/Alphas_and_Cyanos/comparing_rooting_methods/mad_reconciliations/'):
-    mad_supported_pairs = {}
-    for group in random_root_supported_pairs.keys():
-        handle = open('%s/aggregated' %group)
-        mad_supported_pairs[group] = parse_supported_transfers(handle, threshold=0.9)
+    pool = multiprocessing.Pool(processes=6)
+    mad_supported_pairs = pool.map(parse_aggregated, single_optimal_rooting)
 
-shared_directed_transfers = {}
-for key in random_root_supported_pairs.keys():
-    shared_directed_transfers[key] = []
-    shared_directed_transfers[key].extend(set(random_root_supported_pairs[key]).intersection(ranger_supported_pairs[key], mad_supported_pairs[key]))
+shared_transfers = []
+for a,b,c in zip(mad_supported_pairs, ranger_supported_pairs, random_root_supported_pairs):
+    shared_transfers.extend(set(c).intersection(a,b))
 
-shared_by_mad_ranger = {}
-for key in random_root_supported_pairs.keys():
-    shared_by_mad_ranger[key] = []
-    shared_by_mad_ranger[key].extend(set(mad_supported_pairs[key]).intersection(ranger_supported_pairs[key]))
+shared_by_mad_ranger = []
+for a,b in zip(mad_supported_pairs, ranger_supported_pairs):
+    shared_by_mad_ranger.extend(set(a).intersection(b))
 
-shared_by_mad_random = {}
-for key in random_root_supported_pairs.keys():
-    shared_by_mad_random[key] = []
-    shared_by_mad_random[key].extend(set(mad_supported_pairs[key]).intersection(random_root_supported_pairs[key]))
+shared_by_mad_random = []
+for a,c in zip(mad_supported_pairs, random_root_supported_pairs):
+    shared_by_mad_random.extend(set(a).intersection(c))
 
-shared_by_random_ranger = {}
-for key in random_root_supported_pairs.keys():
-    shared_by_random_ranger[key] = []
-    shared_by_random_ranger[key].extend(set(random_root_supported_pairs[key]).intersection(ranger_supported_pairs[key]))
+shared_by_random_ranger = []
+for b,c in zip(ranger_supported_pairs, random_root_supported_pairs):
+    shared_by_random_ranger.extend(set(b).intersection(c))
 
 #
 # characterize ranger missed transfers

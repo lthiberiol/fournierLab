@@ -94,8 +94,10 @@ for tmp in pkl.load(open('ranger_input_trees-no_long_branches2/subtrees_root_dis
         dissimilar.append(tmp)
 
 fig, ax = plt.subplots()
-sns.kdeplot(less_stringent, ax=ax, label='Less stringent branch length cut-off')
-sns.kdeplot(more_stringent, ax=ax, label='More stringent branch length cut-off')
+sns.kdeplot(root_distances, ax=ax, label='Ranger')
+sns.kdeplot(less_stringent, ax=ax, label='MAD')
+#sns.kdeplot(less_stringent, ax=ax, label='MAD - less stringent branch length cut-off')
+#sns.kdeplot(more_stringent, ax=ax, label='MAD - more stringent branch length cut-off')
 ax.set_xlabel('Distance between root positions')
 ax.set_ylabel('Frequency')
 fig.tight_layout()

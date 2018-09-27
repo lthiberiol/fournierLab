@@ -217,11 +217,12 @@ g.clear()
 plt.close()
 
 single_optimal_rooting = []
-for group in os.listdir('reconciliations/'):
-    if not os.path.isdir('reconciliations/%s' %group) or not os.path.isfile('reconciliations/%s/%s.reconciliation1' %(group, group)):
-        continue
-    if os.path.isfile('reconciliations/%s/%s.optResolution1.ranger_input' %(group, group)) and not os.path.isfile('reconciliations/%s/%s.optResolution2.ranger_input' %(group, group)):
-        single_optimal_rooting.append(group)
+with cd('reconciliations/ranger_roots'):
+    for group in os.listdir('.'):
+        if not os.path.isdir(group) or not os.path.isfile('%s/%s.reconciliation1' %(group, group)):
+            continue
+        if os.path.isfile('%s/%s.optResolution1.ranger_input' %(group, group)) and not os.path.isfile('%s/%s.optResolution2.ranger_input' %(group, group)):
+            single_optimal_rooting.append(group)
 
 out = open('groups_with_single_optimal_DTL_root.list', 'wb')
 out.write('\n'.join(single_optimal_rooting))
@@ -298,7 +299,7 @@ def parse_supported_transfers(handle, threshold=0.6):
     number_of_reconciliations = int(re.match('Processed (\d+) files', text).group(1))
     if number_of_reconciliations != 20:
         return None
-    transfers = re.findall('^.*, Transfers = [^0]\d?\], \[Most Frequent mapping --> (n\S+), (\d+) times\], \[Most Frequent recipient --> (n\S+), (\d+) times\].', text, re.M)
+    transfers = re.findall('^.*, Transfers = [^0]\d+?\], \[Most Frequent mapping --> (n\S+), (\d+) times\], \[Most Frequent recipient --> (n\S+), (\d+) times\].', text, re.M)
     supported_pairs = []
     for donor, donor_support, recipient, recipient_support in transfers:
         if int(donor_support) < threshold*number_of_reconciliations or int(recipient_support) < threshold*number_of_reconciliations:
@@ -321,7 +322,7 @@ def parse_supported_transfers(handle, threshold=0.9):
     for donor, donor_support, recipient, recipient_support in transfers:
         if int(donor_support) < threshold*number_of_reconciliations or int(recipient_support) < threshold*number_of_reconciliations:
             continue
-        supported_pairs.append((donor, recipient))
+        supported_pairs.append((donor, recipient, int(donor_support), int(recipient_support)))
 
     return supported_pairs
 
@@ -334,7 +335,7 @@ with cd('/work/Alphas_and_Cyanos/comparing_rooting_methods/ranger/'):
             os.system('/work/ranger/CorePrograms/AggregateRanger_recipient {group}/{group}.reconciliation > {group}/aggregated'.format(group=group))
 
         handle = open('%s/aggregated' %group)
-        ranger_supported_pairs[group] = parse_supported_transfers(handle, threshold=0.6)
+        ranger_supported_pairs[group] = parse_supported_transfers(handle, threshold=0.8)
 
 with cd('/work/Alphas_and_Cyanos/comparing_rooting_methods/mad_reconciliations/'):
     mad_supported_pairs = {}
@@ -345,7 +346,7 @@ with cd('/work/Alphas_and_Cyanos/comparing_rooting_methods/mad_reconciliations/'
             os.system('/work/ranger/CorePrograms/AggregateRanger_recipient {group}/{group}-MAD.ranger_out > {group}/aggregated'.format(group=group))
 
         handle = open('%s/aggregated' %group)
-        mad_supported_pairs[group] = parse_supported_transfers(handle, threshold=0.6)
+        mad_supported_pairs[group] = parse_supported_transfers(handle, threshold=0.8)
 
 with cd('/work/Alphas_and_Cyanos/comparing_rooting_methods/random_root_reconciliations/'):
     random_root_supported_pairs = {}
@@ -356,7 +357,7 @@ with cd('/work/Alphas_and_Cyanos/comparing_rooting_methods/random_root_reconcili
             os.system('/work/ranger/CorePrograms/AggregateRanger_recipient {group}/{group}-random_root.ranger_out > {group}/aggregated'.format(group=group))
 
         handle = open('%s/aggregated' %group)
-        random_root_supported_pairs[group] = parse_supported_transfers(handle, threshold=0.3)
+        random_root_supported_pairs[group] = parse_supported_transfers(handle, threshold=0.8)
 
 tmp    = []
 [tmp.extend(value) for value in ranger_supported_pairs.values()]
@@ -413,12 +414,12 @@ fig, ax = plt.subplots()
 #sns.kdeplot(random_roots.values(), color='#246B40', bw=1, label='Random rooting', ax=ax)
 #sns.kdeplot(ranger.values(),       color='#24476B', bw=1, label='Ranger', ax=ax)
 #sns.kdeplot(mad.values(),          color='#BF4046', bw=1, label='MAD', ax=ax)
-sns.kdeplot(c[c>=np.percentile(c, 95)], color='#246B40', bw=1, label='Random rooting', ax=ax)
-sns.kdeplot(a[a>=np.percentile(c, 95)], color='#24476B', bw=1, label='Ranger', ax=ax)
-sns.kdeplot(b[b>=np.percentile(c, 95)], color='#BF4046', bw=1, label='MAD', ax=ax)
+sns.kdeplot(c[c>=np.percentile(c, 99)], cumulative=True, color='#246B40', bw=1, label='Random rooting', ax=ax)
+sns.kdeplot(a[a>=np.percentile(c, 99)], cumulative=True, color='#24476B', bw=1, label='Ranger', ax=ax)
+sns.kdeplot(b[b>=np.percentile(c, 99)], cumulative=True, color='#BF4046', bw=1, label='MAD', ax=ax)
 fig.tight_layout()
 fig.set_size_inches(15,8)
-fig.savefig('70/donor_recipient_pair_frquency95.pdf', dpi=600)
+fig.savefig('donor_recipient_pair_frquency95.pdf', dpi=600)
 fig.clear()
 plt.close()
 

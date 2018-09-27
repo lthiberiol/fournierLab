@@ -158,7 +158,8 @@ binning            = np.digitize(branch_lengths, branch_length_bins)
 
 support_df        = pd.DataFrame(columns='branch length bin\tcategory\tsupport'.split('\t'))
 branch_lengths    = np.asarray(branch_lengths)
-for category in [1,3,4,5,6,8]:
+#for category in [1,3,5,8]:
+for category in range(1,9):
     tmp_supports = np.asarray(support_values[category])
     for bin in set(binning):
         binned_support = tmp_supports[binning==bin]

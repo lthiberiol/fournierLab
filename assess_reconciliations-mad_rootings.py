@@ -76,6 +76,10 @@ def parse_aggregated(folder, threshold=0.9, leaves_allowed=False):
     gene_tree['support'] = root_like(gene_tree['named'], ete3.Tree('/work/Alphas_and_Cyanos/ranger_input_trees-no_long_branches/%s.tree' %folder))
     gene_tree            = rename_branches(aggregated, gene_tree['support'])
 
+    ufboot_distribution = [node.support for node in gene_tree.traverse() if not node.is_leaf()]
+    if np.percentile(ufboot_distribution, 25) < 80:
+        return {folder:[[], gene_tree]}
+
     num_replicates = float(re.match('Processed (\d+) files', aggregated).group(1))
 
     if not leaves_allowed:
@@ -110,7 +114,7 @@ with cd('reconciliations/mad_roots'):
 
     yeah = {}
     for filtered in transfers:
-        if filtered.values() != [[]]:
+        if filtered.values()[0][0] != []:
             yeah.update(filtered)
 
 out = open('aggregated/mad-90_threshold.pkl', 'wb')
@@ -128,6 +132,9 @@ def visualize_tree(group, transfers, tree, output_folder='index_transfer_trees/m
 
     count = 0
     for mappings in transfers:
+        if [mappings['donor'], mappings['recipient']] not in maxtic_compatible:
+            continue
+
         donor_map     = gene_tree.search_nodes(name=mappings['donor_map']    )[0]
         recipient_map = gene_tree.search_nodes(name=mappings['recipient_map'])[0]
 
@@ -162,7 +169,7 @@ def visualize_tree(group, transfers, tree, output_folder='index_transfer_trees/m
     for node_name, feats in tmp_names.items():
         node   = gene_tree.search_nodes(name=node_name)[0]
         tmp_id = str(random.random())
-        features[tmp_id] = '[&support=%.2f,hgt_role="%s",hgt_count="%s"]' %(node.support, ', '.join(feats['roles']), ', '.join(feats['hgt_count']))
+        features[tmp_id] = '[&support=%.2f,hgt_role="%s",hgt_count="%s",ranger_name="%s"]' %(node.support, ', '.join(feats['roles']), ', '.join(feats['hgt_count']), node.name)
         node.name = tmp_id
 
 
@@ -182,11 +189,11 @@ def visualize_tree(group, transfers, tree, output_folder='index_transfer_trees/m
             out.write('[&%s]\n' %' '.join(comment))
 
         else:
-            if node.support and not node.name:
-                node.name = '[&support=%.2f]' %node.support
+            if node.support and node.name.startswith('m'):
+                node.name = '[&support=%.2f,ranger_name=%s]' %(node.support, node.name)
 
     newick_text = gene_tree.write(format=1)
-    newick_text = re.sub('_&support_(\d+\.\d\d)_', '[&support=\\1]', newick_text)
+    newick_text = re.sub('_&support_(\d+\.\d\d)_ranger_name_(m\d+)_', '[&support=\\1,ranger_name="\\2"]', newick_text)
     for key, value in features.items():
         newick_text = newick_text.replace(key, value)
     out.write(';\nend;\n')
@@ -247,6 +254,27 @@ out.close()
 
 ########################################################################################################################
 #                                                                                                                      #
+# Assess rooting positions                                                                                             #
+#                                                                                                                      #
+#                                                                                                                      #
+########################################################################################################################
+
+os.chdir('/work/Alphas_and_Cyanos/test_mad_rooting_consistency')
+sample = random.sample(transfer_distances.keys(), 10)
+for group in sample:
+    tree_file = '%s.tree.rooted' %group
+    full_tree = ete3.Tree('../ranger_input_trees-no_long_branches/%s' %tree_file)
+    os.mkdir(group)
+    with cd(group):
+        for count, child in enumerate(full_tree.children):
+            txt = child.write(format=5)
+            out = open('child_%i.tree' %count, 'wb')
+            out.write(re.sub('\):\d+\.\d+;$', ');', txt, flags=re.M))
+            out.close()
+            subprocess.call(['/Users/thiberio/anaconda2/envs/py37/bin/python', '/work/mad.py', 'child_%i.tree' %count])
+
+########################################################################################################################
+#                                                                                                                      #
 #                                                                                                                      #
 #                                                                                                                      #
 #                                                                                                                      #
@@ -260,31 +288,33 @@ def assess_dtl_dist((group, (transfer_data, gene_tree))):
         recipient_branch = gene_tree.search_nodes(name=transfer['recipient_map'])[0]
         donor_branch     = recipient_branch.get_sisters()[0]
 
-
         donor_trees.append(    donor_branch.write(    format=9))
         recipient_trees.append(recipient_branch.write(format=9))
 
     #
     # donor compatibility assessment
-    os.system( 'cp ranger_input_trees/species_tree.template tmp_ranger-%s.input' %(multiprocessing.current_process().name))
+    os.system( 'cp species_tree.template tmp_ranger-%s.input' %(multiprocessing.current_process().name))
     out = open('tmp_ranger-%s.input' %multiprocessing.current_process().name, 'a')
     out.write('\n'.join(donor_trees))
     out.close()
-    os.system('/home/thiberio/ranger/CorePrograms/Ranger-DTL.linux -q -i tmp_ranger-%s.input -o tmp_ranger-%s.output' %(multiprocessing.current_process().name, multiprocessing.current_process().name))
+    os.system('/work/ranger/CorePrograms/Ranger-DTL.mac -q -i tmp_ranger-%s.input -o tmp_ranger-%s.output' %(multiprocessing.current_process().name, multiprocessing.current_process().name))
     dtl_distances['donor'].extend([int(reconciliation_cost) for reconciliation_cost in re.findall('^The minimum reconciliation cost is: (\d+)', open('tmp_ranger-%s.output' %multiprocessing.current_process().name).read(), re.M)])
 
     #
     # recipient compatibility assessment
-    os.system( 'cp ranger_input_trees/species_tree.template tmp_ranger-%s.input' %(multiprocessing.current_process().name))
+    os.system( 'cp species_tree.template tmp_ranger-%s.input' %(multiprocessing.current_process().name))
     out = open('tmp_ranger-%s.input' %multiprocessing.current_process().name, 'a')
     out.write('\n'.join(recipient_trees))
     out.close()
-    os.system('/home/thiberio/ranger/CorePrograms/Ranger-DTL.linux -q -i tmp_ranger-%s.input -o tmp_ranger-%s.output' %(multiprocessing.current_process().name, multiprocessing.current_process().name))
+    os.system('/work/ranger/CorePrograms/Ranger-DTL.mac -q -i tmp_ranger-%s.input -o tmp_ranger-%s.output' %(multiprocessing.current_process().name, multiprocessing.current_process().name))
     dtl_distances['recipient'].extend([int(reconciliation_cost) for reconciliation_cost in re.findall('^The minimum reconciliation cost is: (\d+)', open('tmp_ranger-%s.output' %multiprocessing.current_process().name).read(), re.M)])
 
     return {group:dtl_distances}
 
 dtl_distances = pkl.load(open('aggregated/mad-90_threshold-donor-recipient_branches_dtl.pkl'))
+dtl_distances = pkl.load(open('aggregated/mad_roots-stricter_branch_lengths-donor-recipient_branches_dtl.pkl'))
+
+maxtic_compatible = [line.split()[:2] for line in open('aggregated/maxtic.constraints_MT_output_partial_order').read().split('\n') if line]
 
 transfer_distances       = {group:[] for group in transfers.keys()}
 for group, (transfer_data, gene_tree) in transfers.items():
@@ -295,20 +325,23 @@ for group, (transfer_data, gene_tree) in transfers.items():
 
         transfer_distances[group].append(donor_branch.get_distance(recipient_branch, topology_only=False))
 
-tracer = {'color':[], 'x':[], 'y':[], 'text':[], 'linecolor':'transparent', 'marker':'circle', 'color_means':'Branch length between Donor/Recipient', 'marker_size':10}
+tracer = {'color':[], 'x':[], 'y':[], 'text':[], 'linecolor':'transparent', 'marker':'circle', 'color_means':'Median tree aLRT support', 'marker_size':10}
 for group in dtl_distances.keys():
     for position in range(len(dtl_distances[group]['recipient'])):
+        if [transfers[group][0][position]['donor'], transfers[group][0][position]['recipient']] not in maxtic_compatible:
+            continue
+
         tracer['x'    ].append(dtl_distances[group]['recipient'][position])
         tracer['y'    ].append(dtl_distances[group]['donor'][position])
         tracer['text' ].append('%s-#%i' %(group, position))
         tracer['color'].append(transfer_distances[group][position])
 
-color_range = np.linspace(0, np.max(tracer['color']), 100)
+color_range = np.linspace(np.min(tracer['color']), np.max(tracer['color']), 100)
 color_bins  = np.digitize(tracer['color'], color_range)
 bins        = []
 for n in range(100):
     bins.append(go.Scatter(x=[], y=[], mode='markers', text=[], name=str(round(color_range[n], 2)), hoverinfo='text', showlegend=False,
-                        marker=dict(size=tracer['marker_size'], color=[], colorscale='RdBu', cmax=np.max(tracer['color']), cmin=np.min(tracer['color']), symbol=tracer['marker'], opacity=1.,
+                        marker=dict(size=tracer['marker_size'], color=[], colorscale='RdBu', cmax=np.max(tracer['color']), cmin=np.min(tracer['color']), symbol=tracer['marker'], opacity=.7,
                )))
 
 for position in range(len(tracer['color'])):
@@ -317,6 +350,8 @@ for position in range(len(tracer['color'])):
         bins[current_bin][feature].append(tracer[feature][position])
     bins[current_bin]['marker']['color'].append(tracer['color'][position])
 
+#
+# source: https://plot.ly/python/sliders/
 steps = [dict(label='All',
                 method='restyle',
                 args=[
@@ -327,9 +362,11 @@ for i in range(len(bins)):
     step = dict(label=bins[i]['name'],
                 method='restyle',
                 args=[
-                    'visible', [False] * i + [True] * (len(bins) - i)
+#                    'visible', [False] * i + [True] * (len(bins) - i)
+                    'visible', [False]  * (len(bins))
                 ])
     step['args'][1].append(True)
+    step['args'][1][i] = True
     steps.append(step)
 slider = dict(steps=steps, currentvalue={'prefix':'%s: ' %tracer['color_means']}, pad={'t':50})
 bins.append(go.Scatter(x=[np.min(tracer['x']), np.max(tracer['x'])], y=[np.min(tracer['y']), np.max(tracer['y'])], showlegend=False, mode='markers',
@@ -344,7 +381,7 @@ layout    = go.Layout(title='Donor/Recipient subtree reconciliation costs', hove
 #                      legend=dict(orientation='h'),
                       sliders=[slider])
 fig       = go.Figure(data=plot_data, layout=layout)
-plot      = plotly.offline.plot(fig, filename='/Library/WebServer/Documents/indexTransfers/mad-donor_VS_recipient_DTL-transfer_distance.html', auto_open=False)
+plot      = plotly.offline.plot(fig, filename='/Library/WebServer/Documents/indexTransfers/mad-donor_VS_recipient_DTL-tree_support.html', auto_open=False)
 
 
 
