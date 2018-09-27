@@ -8,14 +8,14 @@ import seaborn as sns
 import pandas as pd
 import matplotlib.colors as colors
 import matplotlib.cm as cmx
-import itertools
 import numpy as np
 import subprocess
+from scipy.stats import spearmanr, linregress
+import itertools
 from Bio import SeqIO, SearchIO, AlignIO, Align, Alphabet
 import re
 import multiprocessing
 from copy import deepcopy
-from scipy.stats import spearmanr
 
 os.chdir('/work/site_rate')
 ncbi = ete3.NCBITaxa()
@@ -83,22 +83,17 @@ for node in full_tree.traverse():
 
 #
 # assess correlations for each branch
+association_data   = {category:dict(x=[], y=[]) for category in range(1,9)}
 correlation_values = {category:[] for category in range(1,9)}
-slope_values = {category:[] for category in range(1,9)}
-for node in full_tree.traverse():
-    pretip_node = False
-    for child in node.children:
-        if child.is_leaf():
-            pretip_node = True
-            break
-
-    if not pretip_node or len(node.get_ancestors()) <= 10:
+slope_values       = {category:[] for category in range(1,9)}
+for leaf in full_tree.get_leaves():
+    if len(leaf.get_ancestors()) < 10:
         continue
 
     for category in correlation_values.keys():
         tmp_supports                 = []
         tmp_num_bipartitions_to_root = []
-        for ancestor in node.get_ancestors()[:-1]:
+        for ancestor in leaf.get_ancestors()[:-1]:
             if not ancestor.name:
                 continue
             tmp_alrt, tmp_bb = [float(value) for value in ancestor.name.split('/')]
@@ -107,15 +102,19 @@ for node in full_tree.traverse():
             tmp_supports.append(eval('ancestor.category_support_%i' %category))
             tmp_num_bipartitions_to_root.append(full_tree.get_distance(ancestor, topology_only=True))
 
-        if len(tmp_supports) < 5:
+        if len(tmp_supports) < 7:
             continue
+        association_data[category]['x'].append(tmp_num_bipartitions_to_root)
+        association_data[category]['y'].append(tmp_supports)
+
         tmp_spearman, tmp_p = spearmanr(tmp_supports, tmp_num_bipartitions_to_root)
         tmp_regression      = linregress(tmp_supports, tmp_num_bipartitions_to_root)
+
         correlation_values[category].append(tmp_spearman)
         slope_values[      category].append(tmp_regression.slope)
-        print '%i: %.2f' %(category, tmp_regression.rvalue)
+#        print '%i: %.2f' %(category, tmp_regression.rvalue)
 
-    print ''
+#    print ''
 
 fig, axs = plt.subplots(nrows=8, sharex=True)
 for category, values in correlation_values.items():
@@ -123,45 +122,62 @@ for category, values in correlation_values.items():
     sns.kdeplot(values, shade=True, ax=axs[category-1])
 fig.set_size_inches(15,12)
 fig.tight_layout()
-fig.savefig('test.pdf', dpi=300)
+fig.savefig('site_rate_support_correlations.pdf', dpi=300)
 plt.close()
 
+fig, axs = plt.subplots(nrows=8, sharex=True)
+for category, values in slope_values.items():
+    axs[category-1].set_title('Site-rate category %i support regression slope distribution' %category)
+    sns.kdeplot(values, shade=True, ax=axs[category-1])
+fig.set_size_inches(15,12)
+fig.tight_layout()
+fig.savefig('site_rate_support_regression_slopes.pdf', dpi=300)
+plt.close()
+
+fig, ax = plt.subplots()
+for x, y in zip(association_data[1]['x'],association_data[1]['y']):
+    sns.regplot(x, y, robust=True, truncate=True, ci=False, color='grey', scatter_kws=dict(alpha=0.0), line_kws=dict(alpha=0.6), ax=ax)
+fig.tight_layout()
+fig.savefig('yeah.pdf', dpi=300)
+plt.close()
+
+
 #
-# assess correlations for each branch
+# assess correlations for branch length
 support_values = {category:[] for category in range(1,9)}
 branch_lengths = []
 for node in full_tree.traverse():
-    if node.is_leaf()::row
+    if node.is_leaf():
         continue
 
     branch_lengths.append(node.dist)
     for category in correlation_values.keys():
         support_values[category].append(eval('node.category_support_%i' %category))
 
-#branch_length_bins = np.linspace(0, np.max(branch_lengths), 50)
 branch_length_bins = [np.percentile(branch_lengths, decile) for decile in range(20, 81, 20)]
 binning            = np.digitize(branch_lengths, branch_length_bins)
 
-fig, axs = plt.subplots(nrows=8, sharex=True)
-yeah = pd.DataFrame(columns='bin category support'.split())
-branch_lengths = np.asarray(branch_lengths)
+support_df        = pd.DataFrame(columns='branch length bin\tcategory\tsupport'.split('\t'))
+branch_lengths    = np.asarray(branch_lengths)
 for category in [1,3,4,5,6,8]:
     tmp_supports = np.asarray(support_values[category])
-    hell = []
     for bin in set(binning):
         binned_support = tmp_supports[binning==bin]
-        hell.append(binned_support)
-        tmp_df = pd.DataFrame(zip([bin]*binned_support.shape[0], [category]*binned_support.shape[0], binned_support),
-                              columns='bin category support'.split())
-        yeah = yeah.append(tmp_df)
-    sns.kdeplot(hell, ax=category - 1)
+        tmp_df = pd.DataFrame(zip([bin+1]*binned_support.shape[0], [category]*binned_support.shape[0], binned_support),
+                              columns='branch length bin\tcategory\tsupport'.split('\t'))
+        support_df = support_df.append(tmp_df)
 
 fig, ax = plt.subplots()
-sns.boxplot(x='bin', y='support', hue='category', data=yeah, ax=ax)
+sns.boxplot(x='branch length bin', y='support', hue='category', data=support_df, ax=ax)
 fig.set_size_inches(15,6)
+ax.legend(loc='upper left', bbox_to_anchor=(1.0, 1.015), title='Site-rate category',frameon=False)
 fig.tight_layout()
-fig.savefig('test1.pdf', dpi=300)
+fig.savefig('support_binned_by_branch_length.pdf', dpi=300)
 plt.close()
+
+
+
+
 
 for category, values in support_values.items():
     chart = sns.jointplot(pd.Series(data=branch_lengths, name='branch length'),
