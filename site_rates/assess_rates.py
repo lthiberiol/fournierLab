@@ -3,13 +3,8 @@
 
 import ete3
 import os
-import itertools
 import pandas as pd
-import subprocess
 from Bio import SeqIO, SearchIO, AlignIO, Align, Alphabet
-import re
-import multiprocessing
-from copy import deepcopy
 
 os.chdir('/work/site_rate')
 ncbi = ete3.NCBITaxa()
@@ -98,59 +93,3 @@ for category in range(1,9):
             continue
         out.write('>%s\n%s\n' %(sequence.name, full_sequences[category][sequence.name]))
     out.close()
-
-
-#
-# Free-rate
-#
-ratesR = pd.read_table('ratesR', comment='#')
-simulated_partitions = {}
-for category in ratesR.Cat.unique():
-    sites                          = ratesR[ratesR.Cat == category]
-    print category, sites.shape[0]
-    simulated_partitions[category] = {block.name:[] for block in alignment}
-    for sequence in alignment:
-        simulated_partitions[category][sequence.name].append(''.join([sequence[position] for position in sites.index]))
-
-for category, sequences in simulated_partitions.items():
-    out = open('simulated_alignmentsR/%i.aln' %category, 'wb')
-    for header,sequence in sequences.items():
-        if header in 'GCF_001315945.1 GCF_001316065.1'.split():
-            continue
-        full_sequence = ''
-        while len(full_sequence) <= 10000:
-            full_sequence += sequence[0]
-        out.write('>%s\n%s\n' %(header, full_sequence))
-    out.close()
-########################################################################################################################
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
