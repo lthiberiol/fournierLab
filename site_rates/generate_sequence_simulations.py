@@ -3,9 +3,25 @@ import os
 import ete3
 import random
 import numpy as np
+from Bio import SeqIO
+import pandas as pd
 
 #
 # initial definitions
+class cd:
+    """
+    Context manager for changing the current working directory
+    """
+    def __init__(self, newPath):
+        self.newPath = os.path.expanduser(newPath)
+
+    def __enter__(self):
+        self.savedPath = os.getcwd()
+        os.chdir(self.newPath)
+
+    def __exit__(self, etype, value, traceback):
+        os.chdir(self.savedPath)
+
 os.chdir('/work/site_rate/sequence_simulation')
 random.seed(5)
 
@@ -79,3 +95,40 @@ for partition_name in 'random_branch_length short_to_long_branches long_to_short
         out = open('%s/%i.fas' %(partition_name, count+1), 'w')
         out.write(block)
         out.close()
+
+#
+# classify sites into rate-categories
+#
+for partition_name in 'random_branch_length short_to_long_branches long_to_short_branches'.split():
+    with cd(partition_name):
+        for replicate in range(1,11):
+            subprocess.call(['iqtree', '-s', '%i.fas' %replicate, '-m', 'LG+G8', '-safe', '-wsr', '-nt', 'AUTO', '-n', '0', '-pre', str(replicate), '-te', '%s.tre' %partition_name])
+
+
+for partition_name in 'random_branch_length short_to_long_branches long_to_short_branches'.split():
+    with cd(partition_name):
+
+        for replicate in range(1,11):
+            alignment = list(SeqIO.parse('%i.fas' %replicate, 'fasta'))
+
+            ratesG         = pd.read_table('%i.rate' %replicate, comment='#')
+            for category in ratesG.Category.unique():
+                sites                    = ratesG[ratesG.Category == category]
+                category_sites = {block.name:[] for block in alignment}
+                for sequence in alignment:
+                    category_sites[sequence.name].append(''.join([sequence[position] for position in sites.index]))
+
+                full_sequences = {}
+                for sequence in alignment:
+                    full_sequences[sequence.name] = ''
+
+                out = open('%i.%i.aln' %(replicate, category), 'w')
+                for header,sequence in category_sites.items():
+                    while len(full_sequences[header]) <= 1000:
+                        full_sequences[header] += sequence[0]
+                    out.write('>%s\n%s\n' %(header, full_sequences[header][:1000]))
+                out.close()
+
+            break
+        break
+    break
