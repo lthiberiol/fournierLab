@@ -25,6 +25,7 @@ class cd:
     def __exit__(self, etype, value, traceback):
         os.chdir(self.savedPath)
 
+
 os.chdir('/work/site_rate/sequence_simulation')
 random.seed(12345)
 num_replicates  = 10
@@ -64,11 +65,11 @@ indelible_conf = '''\
 
 trees = {}
 #
-# generate base tree, if necessary...
-#base_tree = ete3.Tree()
-#base_tree.populate(10)
-#for leaf in base_tree.get_leaves():
-#    leaf.name = leaf.name.replace('aaaaaaaaa', '')
+#generate base tree, if necessary...
+# base_tree = ete3.Tree()
+# base_tree.populate(10)
+# for leaf in base_tree.get_leaves():
+#     leaf.name = leaf.name.replace('aaaaaaaaa', '')
 trees['base_tree'] = ete3.Tree('(((c,(d,e)),((f,(g,h)),(i,j))),(a,b));')
 for node in trees['base_tree'].traverse():
     if node.is_root():
@@ -92,7 +93,7 @@ for node in trees['long2short'].traverse():
     node.dist          = branch_lengths[distance_from_root]
 
 out = open('control.txt', 'w')
-out.write(indelible_conf.format(t1=trees['base_tree'].write( format=5), t1_name='base_tree',
+out.write(indelible_conf.format(t1=trees['base_tree'].write(format=5),  t1_name='base_tree',
                                 t2=trees['short2long'].write(format=5), t2_name='short2long',
                                 t3=trees['long2short'].write(format=5), t3_name='long2short',
                                 num_replicates=num_replicates, length=sequence_length))
@@ -101,27 +102,29 @@ out.close()
 subprocess.call(['/work/site_rate/indelible/INDELibleV1.03/bin/indelible_1.03_OSX_intel'])
 
 for partition_name in trees.keys():
-    fasta = open('%s.fas' %partition_name).read().strip()
+    fasta = open('%s.fas' % partition_name).read().strip()
 
     if not os.path.isdir(partition_name):
         os.mkdir(partition_name)
     else:
-        os.system('rm %s/*' %partition_name)
+        os.system('rm %s/*' % partition_name)
 
-    trees[partition_name].write(outfile='%s/reference.tre' %partition_name, format=5)
+    trees[partition_name].write(outfile='%s/reference.tre' % partition_name, format=5)
 
     for count, block in enumerate(fasta.split('\n     \n')):
-        out = open('%s/%i.fas' %(partition_name, count+1), 'w')
+        out = open('%s/%i.fas' % (partition_name, count+1), 'w')
         out.write(block)
         out.close()
+
 
 #
 # classify sites into rate-categories
 #
 def write_rates((partition_name, replicate_number)):
-    subprocess.call(['iqtree', '-s', '%s/%i.fas' %(partition_name, replicate_number), '-m', 'LG+G8', '-redo',
-                     '-safe', '-wsr', '-nt', '1', '-n', '0', '-pre', '%s/%i' %(partition_name, replicate_number),
-                     '-te', '%s/reference.tre' %partition_name, '-quiet'])
+    subprocess.call(['iqtree', '-s', '%s/%i.fas' % (partition_name, replicate_number), '-m', 'LG+G8', '-redo',
+                     '-safe', '-wsr', '-nt', '1', '-n', '0', '-pre', '%s/%i' % (partition_name, replicate_number),
+                     '-te', '%s/reference.tre' % partition_name, '-quiet'])
+
 
 pool = multiprocessing.Pool(processes=num_threads)
 pool.map(write_rates, product(trees.keys(), range(1, num_replicates+1)))
@@ -138,32 +141,34 @@ for partition_name in trees.keys():
         else:
             os.system('rm -r categories/*')
 
-        for replicate in range(1,num_replicates+1):
-            alignment = list(SeqIO.parse('%i.fas' %replicate, 'fasta'))
+        for replicate in range(1, num_replicates+1):
+            alignment = list(SeqIO.parse('%i.fas' % replicate, 'fasta'))
 
-            ratesG = pd.read_table('%i.rate' %replicate, comment='#')
+            ratesG = pd.read_table('%i.rate' % replicate, comment='#')
             for category in ratesG.Category.unique():
                 site_df        = ratesG[ratesG.Category == category]
                 category_aln   = {sequence.name:'' for sequence in alignment}
                 for sequence in alignment:
                     category_aln[sequence.name] = ''.join([sequence[position] for position in site_df.index])
 
-                out = open('categories/%i.%i.aln' %(replicate, category), 'w')
-                for header,sequence in category_aln.items():
+                out = open('categories/%i.%i.aln' % (replicate, category), 'w')
+                for header, sequence in category_aln.items():
                     full_sequence = ''
                     while len(full_sequence) <= sequence_length:
                         full_sequence += sequence
-                    out.write('>%s\n%s\n' %(header, full_sequence[:1000]))
+                    out.write('>%s\n%s\n' % (header, full_sequence[:1000]))
                 out.close()
 
+
 def run_bootstrap((replicate_number, category)):
-    subprocess.call(['iqtree', '-s', '%i.%i.aln' %(replicate_number, category), '-m', 'LG+G1', '-redo',
-                     '-safe', '-nt', '1', '-pre', '%i.%i' %(replicate_number, category),
+    subprocess.call(['iqtree', '-s', '%i.%i.aln' % (replicate_number, category), '-m', 'LG+G1', '-redo',
+                     '-safe', '-nt', '1', '-pre', '%i.%i' % (replicate_number, category),
                      '-bo', '10', '-keep-ident', '-quiet'])
-    subprocess.call(['iqtree',  '-redo', '-safe', '-nt', '1', '-t', '%i.%i.boottrees' %(replicate_number, category),
+    subprocess.call(['iqtree',  '-redo', '-safe', '-nt', '1', '-t', '%i.%i.boottrees' % (replicate_number, category),
                      '-sup', '../reference.tre', '-quiet'])
 
+
 for partition_name in trees.keys():
-    with cd('%s/categories' %partition_name):
+    with cd('%s/categories' % partition_name):
         pool = multiprocessing.Pool(processes=num_threads)
-        pool.map(run_bootstrap, product(range(1, num_replicates+1), range(1,9)))
+        pool.map(run_bootstrap, product(range(1, num_replicates+1), range(1, 9)))
