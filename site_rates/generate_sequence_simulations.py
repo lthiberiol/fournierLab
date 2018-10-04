@@ -71,12 +71,12 @@ trees = {}
 # for leaf in base_tree.get_leaves():
 #     leaf.name = leaf.name.replace('aaaaaaaaa', '')
 trees['base_tree'] = ete3.Tree('(((c,(d,e)),((f,(g,h)),(i,j))),(a,b));')
+branch_lengths     = np.geomspace(0.01, 1, int(trees['base_tree'].get_farthest_leaf(topology_only=True)[1]+1))
 for node in trees['base_tree'].traverse():
     if node.is_root():
         continue
-    node.dist = random.random()
+    node.dist = random.choice(branch_lengths)
 
-branch_lengths      = np.geomspace(0.01, 1, int(trees['base_tree'].get_farthest_leaf(topology_only=True)[1]+1))
 trees['short2long'] = trees['base_tree'].copy()
 for node in trees['short2long'].traverse():
     if node.is_root():
@@ -161,11 +161,13 @@ for partition_name in trees.keys():
 
 
 def run_bootstrap((replicate_number, category)):
-    subprocess.call(['iqtree', '-s', '%i.%i.aln' % (replicate_number, category), '-m', 'LG+G1', '-redo',
-                     '-safe', '-nt', '1', '-pre', '%i.%i' % (replicate_number, category),
-                     '-bo', '10', '-keep-ident', '-quiet'])
-    subprocess.call(['iqtree',  '-redo', '-safe', '-nt', '1', '-t', '%i.%i.boottrees' % (replicate_number, category),
-                     '-sup', '../reference.tre', '-quiet'])
+#    subprocess.call(['iqtree', '-s', '%i.%i.aln' % (replicate_number, category), '-m', 'LG+G1', '-redo',
+#                     '-safe', '-nt', '1', '-pre', '%i.%i' % (replicate_number, category),
+#                     '-bo', '10', '-keep-ident', '-quiet'])
+#    subprocess.call(['iqtree',  '-redo', '-safe', '-nt', '1', '-t', '%i.%i.boottrees' % (replicate_number, category),
+#                     '-sup', '../reference.tre', '-quiet'])
+    subprocess.call(['raxml',  '-m', 'PROTGAMMALG', '-o', 'a,b', '-p', '12345', '-f', 'b', '-z', '%i.%i.boottrees' % (replicate_number, category),
+                     '-t', '../reference.tre', '-n', '%i.%i' % (replicate_number, category)])
 
 
 for partition_name in trees.keys():
