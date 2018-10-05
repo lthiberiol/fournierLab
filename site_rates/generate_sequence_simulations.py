@@ -28,7 +28,7 @@ class cd:
 
 os.chdir('/work/site_rate/sequence_simulation')
 random.seed(12345)
-num_replicates  = 10
+num_replicates  = 100
 sequence_length = 1000
 num_threads     = 3
 
@@ -66,31 +66,36 @@ indelible_conf = '''\
 trees = {}
 #
 #generate base tree, if necessary...
-# base_tree = ete3.Tree()
-# base_tree.populate(10)
-# for leaf in base_tree.get_leaves():
-#     leaf.name = leaf.name.replace('aaaaaaaaa', '')
-trees['base_tree'] = ete3.Tree('(((c,(d,e)),((f,(g,h)),(i,j))),(a,b));')
-branch_lengths     = np.geomspace(0.01, 1, int(trees['base_tree'].get_farthest_leaf(topology_only=True)[1]+1))
+base_tree = ete3.Tree()
+base_tree.populate(50)
+for leaf in base_tree.get_leaves():
+    leaf.name = leaf.name.replace('aaaaaaaa', '')
+trees['base_tree'] = base_tree.copy()
+#trees['base_tree'] = ete3.Tree('(((c,(d,e)),((f,(g,h)),(i,j))),(a,b));')
+#branch_lengths     = np.geomspace(0.01, 1, int(trees['base_tree'].get_farthest_leaf(topology_only=True)[1]+1))
+
+branch_lengths  = np.linspace(0.01, 1, 30)
+sampled_lengths = []
 for node in trees['base_tree'].traverse():
     if node.is_root():
         continue
-    node.dist = random.choice(branch_lengths)
+    tmp_length = random.choice(branch_lengths)
+    node.dist  = tmp_length
+    sampled_lengths.append(tmp_length)
 
+sampled_lengths.sort()
 trees['short2long'] = trees['base_tree'].copy()
-for node in trees['short2long'].traverse():
+for position, node in enumerate(trees['short2long'].traverse()):
     if node.is_root():
         continue
-    distance_from_root = int(trees['short2long'].get_distance(node, topology_only=True))
-    node.dist          = branch_lengths[distance_from_root]
+    node.dist = sampled_lengths[position-1]
 
-branch_lengths      = sorted(branch_lengths, reverse=True)
+sampled_lengths.sort(reverse=True)
 trees['long2short'] = trees['base_tree'].copy()
-for node in trees['long2short'].traverse():
+for position, node in enumerate(trees['long2short'].traverse()):
     if node.is_root():
         continue
-    distance_from_root = int(trees['long2short'].get_distance(node, topology_only=True))
-    node.dist          = branch_lengths[distance_from_root]
+    node.dist = sampled_lengths[position-1]
 
 out = open('control.txt', 'w')
 out.write(indelible_conf.format(t1=trees['base_tree'].write(format=5),  t1_name='base_tree',
@@ -121,7 +126,7 @@ for partition_name in trees.keys():
 # classify sites into rate-categories
 #
 def write_rates((partition_name, replicate_number)):
-    subprocess.call(['iqtree', '-s', '%s/%i.fas' % (partition_name, replicate_number), '-m', 'LG+G8', '-redo',
+    subprocess.call(['/Users/thiberio/anaconda2/bin/iqtree', '-s', '%s/%i.fas' % (partition_name, replicate_number), '-m', 'LG+G8', '-redo',
                      '-safe', '-wsr', '-nt', '1', '-n', '0', '-pre', '%s/%i' % (partition_name, replicate_number),
                      '-te', '%s/reference.tre' % partition_name, '-quiet'])
 
@@ -161,13 +166,11 @@ for partition_name in trees.keys():
 
 
 def run_bootstrap((replicate_number, category)):
-#    subprocess.call(['iqtree', '-s', '%i.%i.aln' % (replicate_number, category), '-m', 'LG+G1', '-redo',
-#                     '-safe', '-nt', '1', '-pre', '%i.%i' % (replicate_number, category),
-#                     '-bo', '10', '-keep-ident', '-quiet'])
-#    subprocess.call(['iqtree',  '-redo', '-safe', '-nt', '1', '-t', '%i.%i.boottrees' % (replicate_number, category),
-#                     '-sup', '../reference.tre', '-quiet'])
-    subprocess.call(['raxml',  '-m', 'PROTGAMMALG', '-o', 'a,b', '-p', '12345', '-f', 'b', '-z', '%i.%i.boottrees' % (replicate_number, category),
-                     '-t', '../reference.tre', '-n', '%i.%i' % (replicate_number, category)])
+    subprocess.call(['iqtree', '-s', '%i.%i.aln' % (replicate_number, category), '-m', 'LG+G1', '-redo',
+                     '-safe', '-nt', '1', '-pre', '%i.%i' % (replicate_number, category),
+                     '-bo', '10', '-keep-ident', '-quiet'])
+    subprocess.call(['/Users/thiberio/anaconda2/bin/raxml',  '-m', 'PROTGAMMALG', '-o', 'a,b', '-p', '12345', '-f', 'b', '-z', '%i.%i.boottrees' % (replicate_number, category),
+                     '-t', '../reference.tre', '--silent', '-n', '%i.%i' % (replicate_number, category)])
 
 
 for partition_name in trees.keys():

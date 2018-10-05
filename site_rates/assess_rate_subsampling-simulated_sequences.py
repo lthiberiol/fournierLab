@@ -40,14 +40,7 @@ for partition_name, tree in trees.items():
 
     with cd('%s/categories' % partition_name):
         for replicate in range(1, num_replicates+1):
-            tmp_trees = [ete3.Tree('RAxML_bipartitions.%i.%i' % (replicate, category)) for category in range(1,9)]
-#            tree_txts = [open('%i.%i.boottrees.suptree' % (replicate, category)).readline().replace('((a', '(a') for category in range(1,9)]
-#            tmp_trees = [ete3.Tree(re.sub('\d+:1.0000000000\);', ';', tmp_txt)) for tmp_txt in tree_txts]
-#
-#            [tmp_tree.set_outgroup(tmp_tree.get_common_ancestor('a b'.split())) for tmp_tree in tmp_trees]
-#            [tmp_tree.ladderize                                                 for tmp_tree in tmp_trees]
-#
-#            traversing_trees = [tmp_tree.traverse() for tmp_tree in tmp_trees]
+            tmp_trees = [ete3.Tree('RAxML_bipartitions.%i.%i' % (replicate, category)).traverse() for category in range(1,9)]
 
             for node, replicated_nodes in zip(trees[partition_name].traverse(), zip(*tmp_trees)):
                 if node.is_leaf():
@@ -91,7 +84,5 @@ for partition_name, tree in trees.items():
     fig.set_size_inches(15,6)
     ax.legend(loc='upper left', bbox_to_anchor=(1.0, 1.015), title='Site-rate category',frameon=False)
     fig.tight_layout()
-    fig.savefig('support_binned_by_branch_length-%s.pdf' %partition_name, dpi=300)
+    fig.savefig('support_binned_by_branch_length-%s.png' %partition_name, dpi=300)
     plt.close()
-
-    break
