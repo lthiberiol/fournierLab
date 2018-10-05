@@ -169,7 +169,12 @@ def run_bootstrap((replicate_number, category)):
     subprocess.call(['iqtree', '-s', '%i.%i.aln' % (replicate_number, category), '-m', 'LG+G1', '-redo',
                      '-safe', '-nt', '1', '-pre', '%i.%i' % (replicate_number, category),
                      '-bo', '10', '-keep-ident', '-quiet'])
-    subprocess.call(['/Users/thiberio/anaconda2/bin/raxml',  '-m', 'PROTGAMMALG', '-o', 'a,b', '-p', '12345', '-f', 'b', '-z', '%i.%i.boottrees' % (replicate_number, category),
+    #
+    # edit the raxml's outgroup by hand, I know it sucks, but its easier this way...
+    #
+    subprocess.call(['/Users/thiberio/anaconda2/bin/raxml',  '-m', 'PROTGAMMALG',
+                     '-o', 'bf,bg,bh,bi,bj,bk,bl,bm,bn,bo,bp,bq,br,bs,bt,bu,bv,bw,bx,by,aa,ab,ac,ad,ae,af,ag,ah,ai,aj,ak,al,am,an',
+                     '-p', '12345', '-f', 'b', '-z', '%i.%i.boottrees' % (replicate_number, category),
                      '-t', '../reference.tre', '--silent', '-n', '%i.%i' % (replicate_number, category)])
 
 
