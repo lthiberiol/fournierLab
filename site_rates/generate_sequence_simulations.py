@@ -166,9 +166,9 @@ for partition_name in trees.keys():
 
 
 def run_bootstrap((replicate_number, category)):
-    subprocess.call(['iqtree', '-s', '%i.%i.aln' % (replicate_number, category), '-m', 'LG+G1', '-redo',
-                     '-safe', '-nt', '1', '-pre', '%i.%i' % (replicate_number, category),
-                     '-bo', '10', '-keep-ident', '-quiet'])
+#    subprocess.call(['iqtree', '-s', '%i.%i.aln' % (replicate_number, category), '-m', 'LG+G1', '-redo',
+#                     '-safe', '-nt', '1', '-pre', '%i.%i' % (replicate_number, category),
+#                     '-bo', '10', '-keep-ident', '-quiet'])
     #
     # edit the raxml's outgroup by hand, I know it sucks, but its easier this way...
     #

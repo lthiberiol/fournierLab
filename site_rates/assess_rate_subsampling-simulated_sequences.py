@@ -29,6 +29,7 @@ branch_lengths = np.geomspace(0.01, 1, int(trees['base_tree'].get_farthest_leaf(
 
 support_values = {}
 for partition_name, tree in trees.items():
+    tree.ladderize()
     support_values[partition_name] = {category:[] for category in range(1, 9)}
 
     for node in tree.traverse():
@@ -40,7 +41,9 @@ for partition_name, tree in trees.items():
 
     with cd('%s/categories' % partition_name):
         for replicate in range(1, num_replicates+1):
-            tmp_trees = [ete3.Tree('RAxML_bipartitions.%i.%i' % (replicate, category)).traverse() for category in range(1,9)]
+            tmp_trees = [ete3.Tree('RAxML_bipartitions.%i.%i' % (replicate, category)) for category in range(1,9)]
+            [tmp_tree.ladderize() for tmp_tree in tmp_trees]
+            tmp_trees = [tmp_tree.traverse() for tmp_tree in tmp_trees]
 
             for node, replicated_nodes in zip(trees[partition_name].traverse(), zip(*tmp_trees)):
                 if node.is_leaf():
@@ -64,6 +67,7 @@ for partition_name, tree in trees.items():
     sampled_branch_lengths = [node.dist for node in tree.traverse() if not node.is_leaf()]
 
     branch_length_bins     = [np.percentile(sampled_branch_lengths, decile) for decile in range(20, 81, 20)]
+    branch_length_bins     = np.linspace(0.1, 1.1, 5)
     binning                = np.digitize(sampled_branch_lengths, branch_length_bins)
 
     support_df             = pd.DataFrame(columns='branch length bin\tcategory\tsupport'.split('\t'))
