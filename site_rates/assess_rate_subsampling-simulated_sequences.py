@@ -66,8 +66,8 @@ for partition_name, tree in trees.items():
 for partition_name, tree in trees.items():
     sampled_branch_lengths = [node.dist for node in tree.traverse() if not node.is_leaf()]
 
-    branch_length_bins     = [np.percentile(sampled_branch_lengths, decile) for decile in range(20, 81, 20)]
-    branch_length_bins     = np.linspace(0.1, 1.1, 5)
+#    branch_length_bins     = [np.percentile(sampled_branch_lengths, decile) for decile in range(20, 81, 20)]
+    branch_length_bins     = np.linspace(0.1, 1.1, 8)
     binning                = np.digitize(sampled_branch_lengths, branch_length_bins)
 
     support_df             = pd.DataFrame(columns='branch length bin\tcategory\tsupport'.split('\t'))

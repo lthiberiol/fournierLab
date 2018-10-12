@@ -5,9 +5,27 @@ import ete3
 import os
 import pandas as pd
 from Bio import SeqIO, SearchIO, AlignIO, Align, Alphabet
+import subprocess
+import numpy as np
+from scipy.spatial.distance import squareform
+from matplotlib import pyplot as plt
+import seaborn as sns
 
 os.chdir('/work/site_rate')
 ncbi = ete3.NCBITaxa()
+class cd:
+    """
+    Context manager for changing the current working directory
+    """
+    def __init__(self, newPath):
+        self.newPath = os.path.expanduser(newPath)
+
+    def __enter__(self):
+        self.savedPath = os.getcwd()
+        os.chdir(self.newPath)
+
+    def __exit__(self, etype, value, traceback):
+        os.chdir(self.savedPath)
 
 #
 # already done!
@@ -41,41 +59,41 @@ lineages.drop('no rank', axis=1, inplace=True)
 lineages.dropna(how='any', subset=['genus'], inplace=True)
 
 archaea_groups = {28889: u'Crenarchaeota', 28890: u'Euryarchaeota', 651137: u'Thaumarchaeota'}
-for taxid, taxon in archaea_groups.items():
-    leaves = lineages[lineages.phylum==taxid].index.tolist()
-    isItMonophyletic, fuckingUp, cladeType = tree.check_monophyly(leaves, 'name')
-    if isItMonophyletic:
-        print taxon
 
 ########################################################################################################################
 # parse site rates
 #
 ########################################################################################################################
 alignment = AlignIO.read('ribosomal_concat.aln', 'fasta')
+
+subprocess.call(['iqtree', '-s', 'ribosomal_concat.aln',
+                 '-spp', 'rate_partitions', '-nt', '3',
+                 '-safe', '-wsr', '-n', '0', '-te', 'partition_file.txt.treefile'])
+
 #
 # GAMMA distribution
 #
-ratesG = pd.read_table('ratesG', comment='#')
+rates = pd.read_table('rate_partitions.rate', comment='#')
 simulated_partitions = {}
-for partition_number in ratesG.Part.unique():
-    partition                              = ratesG[ratesG.Part == partition_number]
+for partition_number in rates.Part.unique():
+    partition                              = rates[rates.Part == partition_number]
     simulated_partitions[partition_number] = {category:{} for category in partition.Cat.unique()}
 
     for category in partition.Cat.unique():
-        sites                          = partition[partition.Cat == category]
+        sites                                            = partition[partition.Cat == category]
         simulated_partitions[partition_number][category] = {block.name:[] for block in alignment}
         for sequence in alignment:
             simulated_partitions[partition_number][category][sequence.name].append(''.join([sequence[position] for position in sites.index]))
 
 full_sequences = {}
-for category in range(1,9):
+for category in range(11):
     full_sequences[category] = {}
     for sequence in alignment:
         full_sequences[category][sequence.name] = ''
 
 for partition_number, categories in simulated_partitions.items():
     print partition_number
-    partition = ratesG[ratesG.Part == partition_number]
+    partition = rates[rates.Part == partition_number]
 
     for category, sequences in categories.items():
         for header,sequence in sequences.items():
@@ -86,10 +104,85 @@ for partition_number, categories in simulated_partitions.items():
                 full_sequence += sequence[0]
             full_sequences[category][header] += full_sequence[:partition.shape[0]]
 
-for category in range(1,9):
-    out = open('simulated_alignmentsG/%i.aln' %category, 'wb')
+sorted_taxa = []
+for category in range(1, 11):
+    out = open('rate_categories/%i.aln' %category, 'wb')
     for sequence in alignment:
         if sequence.name in 'GCF_001315945.1 GCF_001316065.1'.split():
             continue
+        if category == 1:
+            sorted_taxa.append(sequence.name)
         out.write('>%s\n%s\n' %(sequence.name, full_sequences[category][sequence.name]))
     out.close()
+
+ml_distances = pd.read_table('partition_file.txt.mldist', index_col=0, header=None, skiprows=1, sep=' ')
+ml_distances.drop(132, axis='columns', inplace=True)
+ml_distances.columns = ml_distances.index
+
+fig, ax = plt.subplots()
+with cd('rate_categories'):
+    for category in range(1, 11):
+#        subprocess.call(['distmat', '-sequence', '%i.aln' % category, '-protmethod', '0', '-outfile', '%i.distmat' % category])
+        uncorrected_distances = pd.read_table('%i.distmat' % category, skiprows=7, header=None, index_col=-1)
+        uncorrected_distances.drop([0, 132], axis='columns', inplace=True)
+        uncorrected_distances.columns = uncorrected_distances.index = sorted_taxa
+
+        lower_triangle_indexes = np.tril_indices(uncorrected_distances.shape[0], -1)
+        uncorrected_distances.values[lower_triangle_indexes] = uncorrected_distances.T.values[lower_triangle_indexes]
+
+        uncorrected_distances = uncorrected_distances.reindex(index=ml_distances.index,
+                                                              columns=ml_distances.columns,
+                                                              tolerance=0)
+
+        plot = sns.scatterplot(squareform(ml_distances.values),
+                        squareform(uncorrected_distances.values),
+                        ax=ax, label='category %i' % category, alpha=0.7, s=5
+                        )
+fig.set_size_inches(15,15)
+fig.tight_layout()
+fig.savefig('saturation_test-combined.pdf', dpi=300)
+plt.close()
+
+colors = '#29bece #bcbc35 #7f7f7f #e17ac1 #8b564c #936abb #d42a2f #339f34 #fd7f28 #2678b2'.split()
+colors.reverse()
+fig, axs = plt.subplots(nrows=3, ncols=4, sharex=True, sharey=True)
+with cd('rate_categories'):
+    row = col = 0
+    for category in range(1, 11):
+        if category  in [1,2,3,4]:
+            row = 0
+        elif category in [5,6,7,8]:
+            row = 1
+        else:
+            row = 2
+
+        if category in [1,5,9]:
+            col = 0
+        elif category in [2,6,10]:
+            col = 1
+        elif category in [3,7]:
+            col = 2
+        else:
+            col = 3
+
+        #        subprocess.call(['distmat', '-sequence', '%i.aln' % category, '-protmethod', '0', '-outfile', '%i.distmat' % category])
+        uncorrected_distances = pd.read_table('%i.distmat' % category, skiprows=7, header=None, index_col=-1)
+        uncorrected_distances.drop([0, 132], axis='columns', inplace=True)
+        uncorrected_distances.columns = uncorrected_distances.index = sorted_taxa
+
+        lower_triangle_indexes = np.tril_indices(uncorrected_distances.shape[0], -1)
+        uncorrected_distances.values[lower_triangle_indexes] = uncorrected_distances.T.values[lower_triangle_indexes]
+
+        uncorrected_distances = uncorrected_distances.reindex(index=ml_distances.index,
+                                                              columns=ml_distances.columns,
+                                                              tolerance=0)
+
+        plot = sns.scatterplot(squareform(ml_distances.values),
+                               squareform(uncorrected_distances.values),
+                               ax=axs[row, col], label='category %i' % category, alpha=0.5,
+                               color=colors[category-1]
+                               )
+fig.set_size_inches(18,14)
+fig.tight_layout()
+fig.savefig('saturation_test.pdf', dpi=300)
+plt.close()

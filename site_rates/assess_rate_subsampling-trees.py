@@ -57,11 +57,11 @@ full_tree.write(outfile='species.tree', dist_formatter='%.20f', format=5)
 
 for category in range(1,9):
     subprocess.call(['/Users/thiberio/anaconda2/bin/raxml', '-m', 'PROTGAMMALG', '-p', '12345', '-f', 'b',
-                     '-t', 'species.tree', '-z', '%i.boottrees' %category, '-n', '%i_supported' %category])
+                     '-t', 'species.tree', '-z', 'bayes/%i.treelist' %category, '-w', '/work/site_rate/simulated_alignmentsG/bayes', '-n', '%i_supported' %category])
 
 categories_supported_trees = {}
 for category in range(1,9):
-    tmp_tree = ete3.Tree('RAxML_bipartitions.%i_supported' %category)
+    tmp_tree = ete3.Tree('bayes/RAxML_bipartitions.%i_supported' %category)
 
     outgroup = tmp_tree.get_common_ancestor(assembly_summary_outgroup.index.tolist())
     tmp_tree.set_outgroup(outgroup)
@@ -122,7 +122,7 @@ for category, values in correlation_values.items():
     sns.kdeplot(values, shade=True, ax=axs[category-1])
 fig.set_size_inches(15,12)
 fig.tight_layout()
-fig.savefig('site_rate_support_correlations.pdf', dpi=300)
+fig.savefig('bayes/site_rate_support_correlations.pdf', dpi=300)
 plt.close()
 
 fig, axs = plt.subplots(nrows=8, sharex=True)
@@ -131,7 +131,7 @@ for category, values in slope_values.items():
     sns.kdeplot(values, shade=True, ax=axs[category-1])
 fig.set_size_inches(15,12)
 fig.tight_layout()
-fig.savefig('site_rate_support_regression_slopes.pdf', dpi=300)
+fig.savefig('bayes/site_rate_support_regression_slopes.pdf', dpi=300)
 plt.close()
 
 fig, ax = plt.subplots()
@@ -172,5 +172,5 @@ sns.boxplot(x='branch length bin', y='support', hue='category', data=support_df,
 fig.set_size_inches(15,6)
 ax.legend(loc='upper left', bbox_to_anchor=(1.0, 1.015), title='Site-rate category',frameon=False)
 fig.tight_layout()
-fig.savefig('support_binned_by_branch_length.pdf', dpi=300)
+fig.savefig('bayes/support_binned_by_branch_length.pdf', dpi=300)
 plt.close()
