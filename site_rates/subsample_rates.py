@@ -67,7 +67,7 @@ archaea_groups = {28889: u'Crenarchaeota', 28890: u'Euryarchaeota', 651137: u'Th
 alignment = AlignIO.read('ribosomal_concat.aln', 'fasta')
 
 subprocess.call(['iqtree', '-s', 'ribosomal_concat.aln',
-                 '-spp', 'rate_partitions', '-nt', '3',
+                 '-spp', 'rate_partitions', '-nt', '3', '-redo',
                  '-safe', '-wsr', '-n', '0', '-te', 'partition_file.txt.treefile'])
 
 #
@@ -86,7 +86,7 @@ for partition_number in rates.Part.unique():
             simulated_partitions[partition_number][category][sequence.name].append(''.join([sequence[position] for position in sites.index]))
 
 full_sequences = {}
-for category in range(11):
+for category in range(13):
     full_sequences[category] = {}
     for sequence in alignment:
         full_sequences[category][sequence.name] = ''
@@ -105,7 +105,7 @@ for partition_number, categories in simulated_partitions.items():
             full_sequences[category][header] += full_sequence[:partition.shape[0]]
 
 sorted_taxa = []
-for category in range(1, 11):
+for category in range(1, 13):
     out = open('rate_categories/%i.aln' %category, 'wb')
     for sequence in alignment:
         if sequence.name in 'GCF_001315945.1 GCF_001316065.1'.split():
@@ -121,8 +121,8 @@ ml_distances.columns = ml_distances.index
 
 fig, ax = plt.subplots()
 with cd('rate_categories'):
-    for category in range(1, 11):
-#        subprocess.call(['distmat', '-sequence', '%i.aln' % category, '-protmethod', '0', '-outfile', '%i.distmat' % category])
+    for category in range(1, 13):
+        subprocess.call(['distmat', '-sequence', '%i.aln' % category, '-protmethod', '0', '-outfile', '%i.distmat' % category])
         uncorrected_distances = pd.read_table('%i.distmat' % category, skiprows=7, header=None, index_col=-1)
         uncorrected_distances.drop([0, 132], axis='columns', inplace=True)
         uncorrected_distances.columns = uncorrected_distances.index = sorted_taxa
@@ -143,12 +143,12 @@ fig.tight_layout()
 fig.savefig('saturation_test-combined.pdf', dpi=300)
 plt.close()
 
-colors = '#29bece #bcbc35 #7f7f7f #e17ac1 #8b564c #936abb #d42a2f #339f34 #fd7f28 #2678b2'.split()
+colors = '#29bece #bcbc35 #7f7f7f #e17ac1 #8b564c #936abb #d42a2f #339f34 #fd7f28 #2678b2 #29bece #bcbc35 '.split()
 colors.reverse()
 fig, axs = plt.subplots(nrows=3, ncols=4, sharex=True, sharey=True)
 with cd('rate_categories'):
     row = col = 0
-    for category in range(1, 11):
+    for category in range(1, 13):
         if category  in [1,2,3,4]:
             row = 0
         elif category in [5,6,7,8]:
@@ -160,12 +160,12 @@ with cd('rate_categories'):
             col = 0
         elif category in [2,6,10]:
             col = 1
-        elif category in [3,7]:
+        elif category in [3,7,11]:
             col = 2
         else:
             col = 3
 
-        #        subprocess.call(['distmat', '-sequence', '%i.aln' % category, '-protmethod', '0', '-outfile', '%i.distmat' % category])
+        #subprocess.call(['distmat', '-sequence', '%i.aln' % category, '-protmethod', '0', '-outfile', '%i.distmat' % category])
         uncorrected_distances = pd.read_table('%i.distmat' % category, skiprows=7, header=None, index_col=-1)
         uncorrected_distances.drop([0, 132], axis='columns', inplace=True)
         uncorrected_distances.columns = uncorrected_distances.index = sorted_taxa
