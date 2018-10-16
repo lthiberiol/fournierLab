@@ -7,7 +7,6 @@ import seaborn as sns
 import re
 import random
 
-
 class cd:
     """
     Context manager for changing the current working directory
