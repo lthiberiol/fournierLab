@@ -28,9 +28,10 @@ class cd:
 
 os.chdir('/work/site_rate/sequence_simulation')
 random.seed(12345)
-num_replicates  = 100
-sequence_length = 1000
-num_threads     = 3
+num_replicates      = 100
+sequence_length     = 1000
+num_threads         = 3
+num_rate_categories = 12
 
 indelible_conf = '''\
 /////////////////////////////////////////////////////////////////////////////////////
@@ -57,37 +58,60 @@ indelible_conf = '''\
                     0.054   0.008   0.025   0.084   // S T W Y V
 
 [TREE] T1  {t1}
+[TREE] T2  {t2}
+[TREE] T3  {t3}
 
-[PARTITIONS] partition1 [T1 model1 {length}]   // tree T1, model model1, root length 1000
+//[PARTITIONS] partition1 [T1 model1 {length}]   // tree T1, model model1, root length 1000
+[PARTITIONS] partition2 [T2 model1 {length}]   // tree T2, model model1, root length 1000
+[PARTITIONS] partition3 [T3 model1 {length}]   // tree T3, model model1, root length 1000
 
-[EVOLVE]    partition1  {num_replicates}   {t1_name}
+[EVOLVE]    //partition1  {num_replicates}   {t1_name}
+            partition2  {num_replicates}   {t2_name}
+            partition3  {num_replicates}   {t3_name}
 '''
 
 partition_name = 'base_tree'
-trees = {}
+trees                 = {}
 trees[partition_name] = ete3.Tree('../rate_categories/species.tree')
 
+branch_lengths = np.asarray([node.dist for node in trees['base_tree'].traverse() if not node.is_root()])
+branch_lengths.sort()
+trees['short2long'] = trees['base_tree'].copy()
+for position, node in enumerate(trees['short2long'].traverse()):
+    if node.is_root():
+        continue
+    node.dist = branch_lengths[position-1]
+
+reverse_order       = list(reversed(branch_lengths))
+trees['long2short'] = trees['base_tree'].copy()
+for position, node in enumerate(trees['long2short'].traverse()):
+    if node.is_root():
+        continue
+    node.dist = reverse_order[position-1]
+
 out = open('control.txt', 'w')
-out.write(indelible_conf.format(t1=trees[partition_name].write(format=5),  t1_name='base_tree',
+out.write(indelible_conf.format(t1=trees['base_tree'].write(format=5),  t1_name='base_tree',
+                                t2=trees['short2long'].write(format=5), t2_name='short2long',
+                                t3=trees['long2short'].write(format=5), t3_name='long2short',
                                 num_replicates=num_replicates, length=sequence_length))
 out.close()
 
 subprocess.call(['/work/site_rate/indelible/INDELibleV1.03/bin/indelible_1.03_OSX_intel'])
 
-fasta = open('%s.fas' % partition_name).read().strip()
+for partition_name, tree in trees.items():
+    fasta = open('%s.fas' % partition_name).read().strip()
 
-if not os.path.isdir(partition_name):
-    os.mkdir(partition_name)
-else:
-    os.system('rm %s/*' % partition_name)
+    if not os.path.isdir(partition_name):
+        os.mkdir(partition_name)
+    else:
+        os.system('rm %s/*' % partition_name)
 
-trees[partition_name].write(outfile='%s/reference.tre' % partition_name, format=5)
+    tree.write(outfile='%s/reference.tre' % partition_name, format=5)
 
-for count, block in enumerate(fasta.split('\n     \n')):
-    out = open('%s/%i.fas' % (partition_name, count+1), 'w')
-    out.write(block)
-    out.close()
-
+    for count, block in enumerate(fasta.split('\n     \n')):
+        out = open('%s/%i.fas' % (partition_name, count+1), 'w')
+        out.write(block)
+        out.close()
 
 #
 # classify sites into rate-categories
@@ -136,16 +160,9 @@ def run_bootstrap((replicate_number, category)):
     subprocess.call(['iqtree', '-s', '%i.%i.aln' % (replicate_number, category), '-m', 'LG+G1', '-redo',
                      '-safe', '-nt', '1', '-pre', '%i.%i' % (replicate_number, category),
                      '-alrt', '1000', '-keep-ident', '-quiet', '-te', '../reference.tre'])
-    #
-    # edit the raxml's outgroup by hand, I know it sucks, but its easier this way...
-    #
-#     subprocess.call(['/Users/thiberio/anaconda2/bin/raxml',  '-m', 'PROTGAMMALG',
-#                      '-o', 'bf,bg,bh,bi,bj,bk,bl,bm,bn,bo,bp,bq,br,bs,bt,bu,bv,bw,bx,by,aa,ab,ac,ad,ae,af,ag,ah,ai,aj,ak,al,am,an',
-#                      '-p', '12345', '-f', 'b', '-z', '%i.%i.boottrees' % (replicate_number, category),
-#                      '-t', '../reference.tre', '--silent', '-n', '%i.%i' % (replicate_number, category)])
 
 
 for partition_name in trees.keys():
     with cd('%s/categories' % partition_name):
         pool = multiprocessing.Pool(processes=num_threads)
-        pool.map(run_bootstrap, product(range(1, num_replicates+1), range(1, 9)))
+        pool.map(run_bootstrap, product(range(1, num_replicates+1), range(1, num_rate_categories+1)))
