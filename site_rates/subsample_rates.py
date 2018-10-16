@@ -138,6 +138,10 @@ with cd('rate_categories'):
                         squareform(uncorrected_distances.values),
                         ax=ax, label='category %i' % category, alpha=0.7, s=5
                         )
+
+ax.set_xlabel('ML pairwise distances from original alignment')
+ax.set_ylabel('Uncorrected distances from rate-category sites')
+
 fig.set_size_inches(15,15)
 fig.tight_layout()
 fig.savefig('saturation_test-combined.pdf', dpi=300)
@@ -182,6 +186,12 @@ with cd('rate_categories'):
                                ax=axs[row, col], label='category %i' % category, alpha=0.5,
                                color=colors[category-1]
                                )
+
+commom_area = fig.add_subplot(111, frameon=False)
+commom_area.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
+commom_area.set_xlabel('ML pairwise distances from original alignment')
+commom_area.set_ylabel('Uncorrected distances from rate-category sites')
+
 fig.set_size_inches(18,14)
 fig.tight_layout()
 fig.savefig('saturation_test.pdf', dpi=300)
