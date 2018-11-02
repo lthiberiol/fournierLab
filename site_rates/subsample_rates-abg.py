@@ -113,7 +113,11 @@ for category in range(1, num_categories + 1):
         out.write('>%s\n%s\n' %(sequence.name, full_sequences[category][sequence.name]))
     out.close()
 
-ml_distances = pd.read_table('partition_file.txt.mldist', index_col=0, header=None, skiprows=1, sep=' ')
+subprocess.call(['iqtree', '-s', 'euk_ribosomal_concat.aln', '-keep-ident',
+                 '-spp', 'euk_partition_file.txt.best_scheme.nex', '-nt', '5', '-redo',
+                 '-safe', '-te', 'BIONJ', '-pre', 'mldistances'])
+
+ml_distances = pd.read_table('mldistances.mldist', index_col=0, header=None, skiprows=1, sep=' ')
 ml_distances.drop(132, axis='columns', inplace=True)
 ml_distances.columns = ml_distances.index
 

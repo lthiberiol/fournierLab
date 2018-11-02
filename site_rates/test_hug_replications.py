@@ -89,4 +89,9 @@ for hug_match, iqtree_match in reciprocal_matches:
 
 hug_tree.write(outfile='ribosomal_concat_ml_tree-no_comments.tre', format=5, dist_formatter='%.20f')
 
-rf       = hug_tree.robinson_foulds(iqtree, unrooted_trees=True)
+hug_tree   = ete3.Tree('ribosomal_concat_ml_tree-no_comments.tre')
+raxml      = ete3.Tree('RAxML_bestTree.replication_test-renamed')
+raxml_eofe = ete3.Tree('RAxML_bestTree.replication_test-engaging_renamed')
+
+
+rf       = hug_tree.robinson_foulds(raxml, unrooted_trees=True)

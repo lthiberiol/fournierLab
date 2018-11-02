@@ -15,14 +15,14 @@ from plotly import graph_objs as go
 ptl.sign_in('lthiberiol', 'm15ikp59lt')
 
 os.chdir('/work/Alphas_and_Cyanos')
-ncbi = ete3.NCBITaxa()
-header = 'assembly_accession bioproject biosample wgs_master refseq_category taxid species_taxid organism_name infraspecific_name isolate version_status assembly_level release_type genome_rep seq_rel_date asm_name submitter gbrs_paired_asm paired_asm_comp ftp_path excluded_from_refseq relation_to_type_material'.split()
-genbank_summary                     = pd.read_table('/work/assembly_summary_genbank.txt', comment='#', header=None, names=header, dtype={'taxid':str, 'infraspecific_name':str})
-genbank_summary['refseq_category']  = genbank_summary['refseq_category'].str.lower()
-genbank_summary['assembly_level']   = genbank_summary['assembly_level'].str.lower()
-genbank_summary['genome_rep']       = genbank_summary['genome_rep'].str.lower()
-genbank_summary.set_index('assembly_accession', inplace=True)
-genbank_summary.index               = [re.sub('\.\d+$', '', index).replace('_', '') for index in genbank_summary.index]
+#ncbi = ete3.NCBITaxa()
+#header = 'assembly_accession bioproject biosample wgs_master refseq_category taxid species_taxid organism_name infraspecific_name isolate version_status assembly_level release_type genome_rep seq_rel_date asm_name submitter gbrs_paired_asm paired_asm_comp ftp_path excluded_from_refseq relation_to_type_material'.split()
+#genbank_summary                     = pd.read_table('/work/assembly_summary_genbank.txt', comment='#', header=None, names=header, dtype={'taxid':str, 'infraspecific_name':str})
+#genbank_summary['refseq_category']  = genbank_summary['refseq_category'].str.lower()
+#genbank_summary['assembly_level']   = genbank_summary['assembly_level'].str.lower()
+#genbank_summary['genome_rep']       = genbank_summary['genome_rep'].str.lower()
+#genbank_summary.set_index('assembly_accession', inplace=True)
+#genbank_summary.index               = [re.sub('\.\d+$', '', index).replace('_', '') for index in genbank_summary.index]
 
 class cd:
     """
@@ -39,14 +39,15 @@ class cd:
         os.chdir(self.savedPath)
 
 def rename_branches(reconciliation_file, tree):
-    branches = re.findall('^(m\d+) = LCA\[(\S+), (\S+)\]:', reconciliation_file, re.M)
+    branches         = re.findall('^(m\d+) = LCA\[(\S+), (\S+)\]:', reconciliation_file, re.M)
+    duplicated_names = {}
     for name, leaf1, leaf2 in branches:
         node = tree.get_common_ancestor(leaf1, leaf2)
         if node.name:
-            print node.get_leaves_by_name()
-            break
+            duplicated_names[name] = node.name
+            continue
         node.name = name
-    return tree
+    return tree, duplicated_names
 
 def root_like( ref_tree, tree2 ):
     tree_to_root = tree2.copy()
@@ -69,12 +70,17 @@ def root_like( ref_tree, tree2 ):
     return tree_to_root
 
 def parse_aggregated(folder, threshold=0.9, leaves_allowed=False):
+    if not os.path.isdir(folder) or not os.path.isfile(
+            '/work/Alphas_and_Cyanos/aggregated/mad_roots-stricter_branch_lengths/%s' % folder):
+        return {folder: []}
+
+    aggregated = open(
+        '/work/Alphas_and_Cyanos/aggregated/mad_roots-stricter_branch_lengths/%s' % folder).read()
     with cd(folder):
-        aggregated    = open('aggregated').read()
         gene_tree     = {'named':ete3.Tree(linecache.getline('%s-MAD.ranger_out1' %folder, 8), format=1)}
 
-    gene_tree['support'] = root_like(gene_tree['named'], ete3.Tree('/work/Alphas_and_Cyanos/ranger_input_trees-no_long_branches/%s.tree' %folder))
-    gene_tree            = rename_branches(aggregated, gene_tree['support'])
+    gene_tree['support']        = root_like(gene_tree['named'], ete3.Tree('/work/Alphas_and_Cyanos/ranger_input_trees-no_long_branches/%s.tree' %folder))
+    gene_tree, duplicated_names = rename_branches(aggregated, gene_tree['support'])
 
     ufboot_distribution = [node.support for node in gene_tree.traverse() if not node.is_leaf()]
     if np.percentile(ufboot_distribution, 25) < 80:
@@ -95,7 +101,10 @@ def parse_aggregated(folder, threshold=0.9, leaves_allowed=False):
 
     selected_transfers = []
     for donor_map_name, donor_name, recipient_name in supported_transfers:
-        donor_map = gene_tree.search_nodes(name=donor_map_name)[0]
+        if donor_map_name in duplicated_names:
+            donor_map = gene_tree.search_nodes(name=duplicated_names[donor_map_name])[0]
+        else:
+            donor_map = gene_tree.search_nodes(name=donor_map_name)[0]
         if donor_map.support < 95:
             continue
 
@@ -106,19 +115,19 @@ def parse_aggregated(folder, threshold=0.9, leaves_allowed=False):
 
     return {folder:[selected_transfers, gene_tree]}
 
-with cd('reconciliations/mad_roots'):
-    pool = multiprocessing.Pool(processes=4)
-    transfers = pool.map(parse_aggregated, os.listdir('.'))
+with cd('reconciliations/mad_roots-stricter_branch_lengths'):
+    pool    = multiprocessing.Pool(processes=15)
+    results = pool.map(parse_aggregated, os.listdir('.'))
     pool.close()
     pool.join()
 
-    yeah = {}
-    for filtered in transfers:
-        if filtered.values()[0][0] != []:
-            yeah.update(filtered)
+    transfers = {}
+    for filtered in results:
+        if  filtered.values() != [[]] and filtered.values()[0][0] != []:
+            transfers.update(filtered)
 
-out = open('aggregated/mad-90_threshold.pkl', 'wb')
-pkl.dump(yeah, out)
+out = open('aggregated/mad_transfers.pkl', 'w')
+pkl.dump(transfers, out)
 out.close()
 
 reference_tree = ete3.Tree('rooted_partitions-with_named_branches.treefile', format=1)
@@ -310,6 +319,11 @@ def assess_dtl_dist((group, (transfer_data, gene_tree))):
     dtl_distances['recipient'].extend([int(reconciliation_cost) for reconciliation_cost in re.findall('^The minimum reconciliation cost is: (\d+)', open('tmp_ranger-%s.output' %multiprocessing.current_process().name).read(), re.M)])
 
     return {group:dtl_distances}
+
+pool = multiprocessing.Pool(processes=18)
+results = pool.map(assess_dtl_dist, transfers.items())
+
+donor_recipient_dtl_distances =
 
 dtl_distances = pkl.load(open('aggregated/mad-90_threshold-donor-recipient_branches_dtl.pkl'))
 dtl_distances = pkl.load(open('aggregated/mad_roots-stricter_branch_lengths-donor-recipient_branches_dtl.pkl'))
