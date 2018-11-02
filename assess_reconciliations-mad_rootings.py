@@ -108,9 +108,14 @@ def parse_aggregated(folder, threshold=0.9, leaves_allowed=False):
         if donor_map.support < 95:
             continue
 
-        recipient_map_search = re.search('^({children[0]}|{children[1]}).*Most Frequent mapping --> {recipient}'.format(recipient=recipient_name, children=[child.name for child in donor_map.children]), aggregated, re.M)
+        recipient_map_search = re.search('^({children[0]}|{children[1]}).*Most Frequent mapping --> {recipient}'.format(
+            recipient=recipient_name,
+            children=[child.name for child in donor_map.children]),
+            aggregated, re.M)
         if recipient_map_search:
             recipient_map_name = recipient_map_search.group(1)
+            if not all([donor_name, recipient_name, donor_map_name, recipient_map_name]):
+                continue
             selected_transfers.append({'donor':donor_name, 'recipient':recipient_name, 'donor_map':donor_map_name, 'recipient_map':recipient_map_name})
 
     return {folder:[selected_transfers, gene_tree]}
@@ -128,6 +133,12 @@ with cd('reconciliations/mad_roots-stricter_branch_lengths'):
 
 out = open('aggregated/mad_transfers.pkl', 'w')
 pkl.dump(transfers, out)
+out.close()
+
+out = open('aggregated/maxtic.constrains', 'w')
+for group, (transfer_data, gene_tree) in transfers.items():
+    for transfer in transfer_data:
+        out.write('%s\t%s\n' % (transfer['donor'], transfer['recipient']))
 out.close()
 
 reference_tree = ete3.Tree('rooted_partitions-with_named_branches.treefile', format=1)
@@ -298,7 +309,7 @@ def assess_dtl_dist((group, (transfer_data, gene_tree))):
         donor_branch     = recipient_branch.get_sisters()[0]
 
         donor_trees.append(    donor_branch.write(    format=9))
-        recipient_trees.append(recipient_branch.write(format=9))
+#        recipient_trees.append(recipient_branch.write(format=9))
 
     #
     # donor compatibility assessment
@@ -311,24 +322,26 @@ def assess_dtl_dist((group, (transfer_data, gene_tree))):
 
     #
     # recipient compatibility assessment
-    os.system( 'cp species_tree.template tmp_ranger-%s.input' %(multiprocessing.current_process().name))
-    out = open('tmp_ranger-%s.input' %multiprocessing.current_process().name, 'a')
-    out.write('\n'.join(recipient_trees))
-    out.close()
-    os.system('/work/ranger/CorePrograms/Ranger-DTL.mac -q -i tmp_ranger-%s.input -o tmp_ranger-%s.output' %(multiprocessing.current_process().name, multiprocessing.current_process().name))
-    dtl_distances['recipient'].extend([int(reconciliation_cost) for reconciliation_cost in re.findall('^The minimum reconciliation cost is: (\d+)', open('tmp_ranger-%s.output' %multiprocessing.current_process().name).read(), re.M)])
+#    os.system( 'cp species_tree.template tmp_ranger-%s.input' %(multiprocessing.current_process().name))
+#    out = open('tmp_ranger-%s.input' %multiprocessing.current_process().name, 'a')
+#    out.write('\n'.join(recipient_trees))
+#    out.close()
+#    os.system('/work/ranger/CorePrograms/Ranger-DTL.mac -q -i tmp_ranger-%s.input -o tmp_ranger-%s.output' %(multiprocessing.current_process().name, multiprocessing.current_process().name))
+#    dtl_distances['recipient'].extend([int(reconciliation_cost) for reconciliation_cost in re.findall('^The minimum reconciliation cost is: (\d+)', open('tmp_ranger-%s.output' %multiprocessing.current_process().name).read(), re.M)])
 
     return {group:dtl_distances}
 
 pool = multiprocessing.Pool(processes=18)
 results = pool.map(assess_dtl_dist, transfers.items())
 
-donor_recipient_dtl_distances =
+donor_recipient_dtl_distances = {}
+for element in results:
+    donor_recipient_dtl_distances.update(element)
 
 dtl_distances = pkl.load(open('aggregated/mad-90_threshold-donor-recipient_branches_dtl.pkl'))
 dtl_distances = pkl.load(open('aggregated/mad_roots-stricter_branch_lengths-donor-recipient_branches_dtl.pkl'))
 
-maxtic_compatible = [line.split()[:2] for line in open('aggregated/maxtic.constraints_MT_output_partial_order').read().split('\n') if line]
+maxtic_compatible = [line.split()[:2] for line in open('aggregated/maxtic.constrains_MT_output_partial_order').read().split('\n') if line]
 
 transfer_distances       = {group:[] for group in transfers.keys()}
 for group, (transfer_data, gene_tree) in transfers.items():
@@ -340,15 +353,15 @@ for group, (transfer_data, gene_tree) in transfers.items():
         transfer_distances[group].append(donor_branch.get_distance(recipient_branch, topology_only=False))
 
 tracer = {'color':[], 'x':[], 'y':[], 'text':[], 'linecolor':'transparent', 'marker':'circle', 'color_means':'Median tree aLRT support', 'marker_size':10}
-for group in dtl_distances.keys():
-    for position in range(len(dtl_distances[group]['recipient'])):
+for group in donor_recipient_dtl_distances.keys():
+    for position in range(len(donor_recipient_dtl_distances[group]['donor'])):
         if [transfers[group][0][position]['donor'], transfers[group][0][position]['recipient']] not in maxtic_compatible:
             continue
 
-        tracer['x'    ].append(dtl_distances[group]['recipient'][position])
-        tracer['y'    ].append(dtl_distances[group]['donor'][position])
+        tracer['x'    ].append(transfer_distances[group][position])
+        tracer['y'    ].append(reference_tree.get_distance(transfers[group][0][position]['donor']))
         tracer['text' ].append('%s-#%i' %(group, position))
-        tracer['color'].append(transfer_distances[group][position])
+        tracer['color'].append(donor_recipient_dtl_distances[group]['donor'][position])
 
 color_range = np.linspace(np.min(tracer['color']), np.max(tracer['color']), 100)
 color_bins  = np.digitize(tracer['color'], color_range)
