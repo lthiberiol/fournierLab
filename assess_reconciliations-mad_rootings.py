@@ -9,20 +9,13 @@ import pickle as pkl
 import linecache
 import pandas as pd
 import numpy as np
+import random
 import plotly
 import plotly.plotly as ptl
 from plotly import graph_objs as go
 ptl.sign_in('lthiberiol', 'm15ikp59lt')
 
 os.chdir('/work/Alphas_and_Cyanos')
-#ncbi = ete3.NCBITaxa()
-#header = 'assembly_accession bioproject biosample wgs_master refseq_category taxid species_taxid organism_name infraspecific_name isolate version_status assembly_level release_type genome_rep seq_rel_date asm_name submitter gbrs_paired_asm paired_asm_comp ftp_path excluded_from_refseq relation_to_type_material'.split()
-#genbank_summary                     = pd.read_table('/work/assembly_summary_genbank.txt', comment='#', header=None, names=header, dtype={'taxid':str, 'infraspecific_name':str})
-#genbank_summary['refseq_category']  = genbank_summary['refseq_category'].str.lower()
-#genbank_summary['assembly_level']   = genbank_summary['assembly_level'].str.lower()
-#genbank_summary['genome_rep']       = genbank_summary['genome_rep'].str.lower()
-#genbank_summary.set_index('assembly_accession', inplace=True)
-#genbank_summary.index               = [re.sub('\.\d+$', '', index).replace('_', '') for index in genbank_summary.index]
 
 class cd:
     """
@@ -198,7 +191,7 @@ def visualize_tree(group, transfers, tree, output_folder='index_transfer_trees/m
     for node in gene_tree.traverse():
         if node.is_leaf():
             taxid         = genbank_summary.loc[node.genome, 'taxid']
-            lineage       = {j: i for i, j in ncbi.get_rank(ncbi.get_lineage(taxid)).items()}
+            lineage       = {j: i for i, j in ncbi.get_rank(ncbi.get_lineage(int(taxid))).items()}
             lineage_names = ncbi.get_taxid_translator(lineage.values())
 
             out.write('\t%s ' %(node.name))
@@ -221,6 +214,17 @@ def visualize_tree(group, transfers, tree, output_folder='index_transfer_trees/m
     out.close()
 
 #secure_copy = reference_tree.copy('deepcopy')
+ncbi = ete3.NCBITaxa()
+header = 'assembly_accession bioproject biosample wgs_master refseq_category taxid species_taxid organism_name infraspecific_name isolate version_status assembly_level release_type genome_rep seq_rel_date asm_name submitter gbrs_paired_asm paired_asm_comp ftp_path excluded_from_refseq relation_to_type_material'.split()
+genbank_summary                     = pd.read_table('/work/assembly_summary_genbank.txt', comment='#', header=None, names=header, dtype={'taxid':str, 'infraspecific_name':str})
+genbank_summary['refseq_category']  = genbank_summary['refseq_category'].str.lower()
+genbank_summary['assembly_level']   = genbank_summary['assembly_level'].str.lower()
+genbank_summary['genome_rep']       = genbank_summary['genome_rep'].str.lower()
+genbank_summary.set_index('assembly_accession', inplace=True)
+genbank_summary.index               = [re.sub('\.\d+$', '', index).replace('_', '') for index in genbank_summary.index]
+
+for group, (transfer_data, gene_tree) in transfers.items():
+    visualize_tree(group, transfer_data, gene_tree)
 
 out  = open('index_transfer_trees/mad-90_threshold/species_tree.Figtree.tree', 'wb')
 out.write("#NEXUS\nbegin taxa;\n\tdimensions ntax=%i;\n\ttaxlabels\n" %len(reference_tree))
@@ -228,7 +232,7 @@ tmp_names = {}
 for node in reference_tree.traverse():
     if node.is_leaf():
         taxid = genbank_summary.loc[node.name, 'taxid']
-        lineage = {j: i for i, j in ncbi.get_rank(ncbi.get_lineage(taxid)).items()}
+        lineage = {j: i for i, j in ncbi.get_rank(ncbi.get_lineage(int(taxid))).items()}
         lineage_names = ncbi.get_taxid_translator(lineage.values())
 
         out.write('\t%s ' % (node.name))
@@ -318,7 +322,12 @@ def assess_dtl_dist((group, (transfer_data, gene_tree))):
     out.write('\n'.join(donor_trees))
     out.close()
     os.system('/work/ranger/CorePrograms/Ranger-DTL.mac -q -i tmp_ranger-%s.input -o tmp_ranger-%s.output' %(multiprocessing.current_process().name, multiprocessing.current_process().name))
-    dtl_distances['donor'].extend([int(reconciliation_cost) for reconciliation_cost in re.findall('^The minimum reconciliation cost is: (\d+)', open('tmp_ranger-%s.output' %multiprocessing.current_process().name).read(), re.M)])
+    dtl_distances['donor'].extend([float(reconciliation_cost)/len(donor_tree) for reconciliation_cost, donor_tree in zip(
+        re.findall('^The minimum reconciliation cost is: (\d+)',
+                   open('tmp_ranger-%s.output' %multiprocessing.current_process().name).read(),
+                   re.M
+                   ),
+        donor_trees)])
 
     #
     # recipient compatibility assessment
@@ -338,8 +347,9 @@ donor_recipient_dtl_distances = {}
 for element in results:
     donor_recipient_dtl_distances.update(element)
 
-dtl_distances = pkl.load(open('aggregated/mad-90_threshold-donor-recipient_branches_dtl.pkl'))
-dtl_distances = pkl.load(open('aggregated/mad_roots-stricter_branch_lengths-donor-recipient_branches_dtl.pkl'))
+out = open('aggregated/donor_subtree_DTL_costs.pkl', 'w')
+pkl.dump(donor_recipient_dtl_distances, out)
+out.close()
 
 maxtic_compatible = [line.split()[:2] for line in open('aggregated/maxtic.constrains_MT_output_partial_order').read().split('\n') if line]
 
@@ -353,29 +363,29 @@ for group, (transfer_data, gene_tree) in transfers.items():
         transfer_distances[group].append(donor_branch.get_distance(recipient_branch, topology_only=False))
 
 tracer = {'color':[], 'x':[], 'y':[], 'text':[], 'linecolor':'transparent', 'marker':'circle', 'color_means':'Median tree aLRT support', 'marker_size':10}
+tracer = {'color':[], 'x':[], 'y':[], 'text':[]}
 for group in donor_recipient_dtl_distances.keys():
     for position in range(len(donor_recipient_dtl_distances[group]['donor'])):
         if [transfers[group][0][position]['donor'], transfers[group][0][position]['recipient']] not in maxtic_compatible:
             continue
 
         tracer['x'    ].append(transfer_distances[group][position])
-        tracer['y'    ].append(reference_tree.get_distance(transfers[group][0][position]['donor']))
+        tracer['y'    ].append(reference_tree.get_distance(transfers[group][0][position]['donor'], topology_only=False))
         tracer['text' ].append('%s-#%i' %(group, position))
         tracer['color'].append(donor_recipient_dtl_distances[group]['donor'][position])
 
-color_range = np.linspace(np.min(tracer['color']), np.max(tracer['color']), 100)
-color_bins  = np.digitize(tracer['color'], color_range)
-bins        = []
-for n in range(100):
-    bins.append(go.Scatter(x=[], y=[], mode='markers', text=[], name=str(round(color_range[n], 2)), hoverinfo='text', showlegend=False,
-                        marker=dict(size=tracer['marker_size'], color=[], colorscale='RdBu', cmax=np.max(tracer['color']), cmin=np.min(tracer['color']), symbol=tracer['marker'], opacity=.7,
-               )))
+color_range          = np.linspace(np.min(tracer['color']), np.max(tracer['color']), 100)
+tracer['color_bins'] = np.digitize(tracer['color'], color_range)
+tracer_df = pd.DataFrame.from_dict(tracer)
 
-for position in range(len(tracer['color'])):
-    current_bin = color_bins[position] - 1
-    for feature in ['x', 'y', 'text']:
-        bins[current_bin][feature].append(tracer[feature][position])
-    bins[current_bin]['marker']['color'].append(tracer['color'][position])
+binned_df = tracer_df.groupby(by='color_bins')
+
+bins        = []
+for bin in binned_df.groups.keys():
+    tmp_df = binned_df.get_group(bin)
+    bins.append(go.Scatter(x=tmp_df.x.values, y=tmp_df.y.values, mode='markers', text=tmp_df.text.values, name=str(round(color_range[bin-1], 4)), hoverinfo='text', showlegend=False,
+                        marker=dict(size=10, color=tmp_df.color.values, colorscale='RdBu', cmax=tracer_df.color.values.max(), cmin=tracer_df.color.values.min(), symbol='circle', opacity=.7,
+               )))
 
 #
 # source: https://plot.ly/python/sliders/
@@ -395,20 +405,19 @@ for i in range(len(bins)):
     step['args'][1].append(True)
     step['args'][1][i] = True
     steps.append(step)
-slider = dict(steps=steps, currentvalue={'prefix':'%s: ' %tracer['color_means']}, pad={'t':50})
+slider = dict(steps=steps, currentvalue={'prefix':'Donor subtree DTL: '}, pad={'t':50})
 bins.append(go.Scatter(x=[np.min(tracer['x']), np.max(tracer['x'])], y=[np.min(tracer['y']), np.max(tracer['y'])], showlegend=False, mode='markers',
-                       marker=dict(size=10, color=[0.5], colorscale='RdBu', cmax=np.max(tracer['color']), cmin=np.min(tracer['color']), symbol=tracer['marker'], opacity=0,
-                                    colorbar=dict(title=tracer['color_means']))
+                       marker=dict(size=10, color=[0.5], colorscale='RdBu', cmax=np.max(tracer['color']), cmin=np.min(tracer['color']), symbol='circle', opacity=0,
+                                    colorbar=dict(title='Donor subtree DTL cost'))
                        ))
 
-plot_data = go.Data(bins)
 layout    = go.Layout(title='Donor/Recipient subtree reconciliation costs', hovermode='closest', width=1200, height=1000,
-                      xaxis=dict(title='Recipient subtree reconciliation costs'),
-                      yaxis=dict(title='Donor subtree reconciliation costs'),
+                      xaxis=dict(title='Donor-Recipient distance'),
+                      yaxis=dict(title='Donor closeness to root'),
 #                      legend=dict(orientation='h'),
                       sliders=[slider])
-fig       = go.Figure(data=plot_data, layout=layout)
-plot      = plotly.offline.plot(fig, filename='/Library/WebServer/Documents/indexTransfers/mad-donor_VS_recipient_DTL-tree_support.html', auto_open=False)
+fig       = go.Figure(data=bins, layout=layout)
+plot      = plotly.offline.plot(fig, filename='./mad-donor_VS_recipient_DTL-tree_support.html', auto_open=False)
 
 
 
